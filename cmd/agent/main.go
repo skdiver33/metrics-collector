@@ -57,7 +57,11 @@ func (agent *Agent) UpdateMetrics() error {
 	memStat := runtime.MemStats{}
 	runtime.ReadMemStats(&memStat)
 	value := reflect.ValueOf(memStat)
-	for _, name := range agent.metricStorage.GetAllMetricsNames() {
+	allMMetricsName, err := agent.metricStorage.GetAllMetricsNames()
+	if err != nil {
+		return err
+	}
+	for _, name := range allMMetricsName {
 		currentMetrics, err := agent.metricStorage.GetMetricsValue(name)
 		if err != nil {
 			fmt.Printf("Error get current value metrics for name %s\n", name)
@@ -129,15 +133,23 @@ func (agent *Agent) InitializeStorage() error {
 }
 
 func (agent *Agent) SendMetrics() error {
-	requestPattern := "http://localhost:8080/%s/%s/%s"
+	requestPattern := "http://localhost:8080/update/%s/%s/%s"
 
-	for _, name := range agent.metricStorage.GetAllMetricsNames() {
+	allMMetricsName, err := agent.metricStorage.GetAllMetricsNames()
+	if err != nil {
+		return err
+	}
+
+	for _, name := range allMMetricsName {
 		currentMetrics, err := agent.metricStorage.GetMetricsValue(name)
 		if err != nil {
 			fmt.Print(err.Error())
 			return err
 		}
 		var value string
+		if currentMetrics.Value == nil && currentMetrics.Delta == nil {
+			return errors.New("error! update metrics before send")
+		}
 		if currentMetrics.Value != nil {
 			value = strconv.FormatFloat(*currentMetrics.Value, 'f', -1, 64)
 		} else {

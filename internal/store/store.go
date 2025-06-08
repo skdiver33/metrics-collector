@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/skdiver33/metrics-collector/models"
@@ -57,11 +58,14 @@ func (inMemmory *MemStorage) UpdateMetricsValue(metricsName string, metricsValue
 	return nil
 }
 
-func (inMemmory *MemStorage) GetAllMetricsNames() []string {
+func (inMemmory *MemStorage) GetAllMetricsNames() ([]string, error) {
 	allMetricsNames := make([]string, 0)
 	for metricsName := range inMemmory.Storage {
 		allMetricsNames = append(allMetricsNames, metricsName)
 
 	}
-	return allMetricsNames
+	if len(allMetricsNames) == 0 {
+		return allMetricsNames, errors.New("empty storage! initialize before use")
+	}
+	return allMetricsNames, nil
 }

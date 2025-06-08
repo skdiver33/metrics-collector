@@ -33,10 +33,21 @@ func (handler *MetricsHandler) ServeHTTP(rw http.ResponseWriter, request *http.R
 		http.Error(rw, "Not all metrics data defined!", http.StatusNotFound)
 		return
 	}
-
-	if _, err := strconv.Atoi(metricsValue); err != nil {
-		http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
-		return
+	switch metricsType {
+	case models.Counter:
+		{
+			if _, err := strconv.Atoi(metricsValue); err != nil {
+				http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
+				return
+			}
+		}
+	case models.Gauge:
+		{
+			if _, err := strconv.ParseFloat(metricsValue, 64); err != nil {
+				http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
+				return
+			}
+		}
 	}
 	rw.Header().Set("Content-type", "text/plain")
 	rw.WriteHeader(http.StatusOK)
