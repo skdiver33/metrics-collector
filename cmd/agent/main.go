@@ -193,7 +193,7 @@ func (agent *Agent) MainLoop() error {
 		}
 		fmt.Println(*val.Delta)
 	}
-	return nil
+
 }
 
 func main() {
