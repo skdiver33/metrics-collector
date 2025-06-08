@@ -7,13 +7,14 @@ import (
 )
 
 type MemStorage struct {
-	storage map[string]models.Metrics
+	Storage map[string]models.Metrics
 }
 
 type Storage interface {
 	AddMetrics(metricsName string, metricsValue models.Metrics) error
 	UpdateMetricsValue(metricsName string, metricsValue models.Metrics) error
 	GetMetricsValue(metricsName string) (models.Metrics, error)
+	GetAllMetricsNames() []string
 	RemoveMetrics(metricsName string) error
 }
 
@@ -25,18 +26,19 @@ func (e storageError) Error() string {
 	return fmt.Sprintf("Storage Error!. %s", e.description)
 }
 
-func (inMemmory MemStorage) AddMetrics(metricsName string, metricsValue models.Metrics) error {
+func (inMemmory *MemStorage) AddMetrics(metricsName string, metricsValue models.Metrics) error {
 	_, err := inMemmory.GetMetricsValue(metricsName)
 	if err == nil {
 		return &storageError{"Metrics Already exist in storage"}
 	}
-	inMemmory.storage[metricsName] = metricsValue
+
+	inMemmory.Storage[metricsName] = metricsValue
 	return nil
 
 }
 
-func (inMemmory MemStorage) GetMetricsValue(metricsName string) (models.Metrics, error) {
-	metrics, ok := inMemmory.storage[metricsName]
+func (inMemmory *MemStorage) GetMetricsValue(metricsName string) (models.Metrics, error) {
+	metrics, ok := inMemmory.Storage[metricsName]
 	if !ok {
 		metrics = models.Metrics{}
 		return metrics, &storageError{"Metrics with name not found!"}
@@ -45,12 +47,21 @@ func (inMemmory MemStorage) GetMetricsValue(metricsName string) (models.Metrics,
 
 }
 
-func (inMemmory MemStorage) UpdateMetricsValue(metricsName string, metricsValue models.Metrics) error {
+func (inMemmory *MemStorage) UpdateMetricsValue(metricsName string, metricsValue models.Metrics) error {
 	_, err := inMemmory.GetMetricsValue(metricsName)
 
 	if err != nil {
 		return &storageError{fmt.Sprintf("Error update value! %s", err.Error())}
 	}
-	inMemmory.storage[metricsName] = metricsValue
+	inMemmory.Storage[metricsName] = metricsValue
 	return nil
+}
+
+func (inMemmory *MemStorage) GetAllMetricsNames() []string {
+	allMetricsNames := make([]string, 0)
+	for metricsName := range inMemmory.Storage {
+		allMetricsNames = append(allMetricsNames, metricsName)
+
+	}
+	return allMetricsNames
 }

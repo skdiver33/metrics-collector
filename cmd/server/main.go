@@ -16,13 +16,13 @@ func (handler *MetricsHandler) ServeHTTP(rw http.ResponseWriter, request *http.R
 		return
 	}
 	metricsData := strings.Split(request.URL.Path, "/")
-	if len(metricsData) != 3 {
+	if len(metricsData) != 4 {
 		http.Error(rw, "Not all metrics data defined!", http.StatusNotFound)
 		return
 	}
-	metricsType := metricsData[0]
-	metricsName := metricsData[1]
-	metricsValue := metricsData[2]
+	metricsType := metricsData[1]
+	metricsName := metricsData[2]
+	metricsValue := metricsData[3]
 
 	if strings.Compare(metricsType, models.Counter) != 0 && strings.Compare(metricsType, models.Gauge) != 0 {
 		http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
@@ -38,13 +38,14 @@ func (handler *MetricsHandler) ServeHTTP(rw http.ResponseWriter, request *http.R
 		http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
 		return
 	}
-	rw.WriteHeader(http.StatusOK)
 	rw.Header().Set("Content-type", "text/plain")
+	rw.WriteHeader(http.StatusOK)
+
 }
 
 func main() {
 	mux := http.NewServeMux()
-	mux.Handle("/update/", http.StripPrefix("/update/", &MetricsHandler{}))
+	mux.Handle("/update/", http.StripPrefix("/update", &MetricsHandler{}))
 	if err := http.ListenAndServe("localhost:8080", mux); err != nil {
 		panic("Error start server")
 	}
