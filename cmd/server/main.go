@@ -5,10 +5,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/skdiver33/metrics-collector/internal/store"
 	"github.com/skdiver33/metrics-collector/models"
 )
 
 type MetricsHandler struct {
+	metricsStorage store.MemStorage
 }
 
 func (handler *MetricsHandler) ReceiveMetrics(rw http.ResponseWriter, request *http.Request) {
@@ -26,23 +28,35 @@ func (handler *MetricsHandler) ReceiveMetrics(rw http.ResponseWriter, request *h
 		http.Error(rw, "Not all metrics data defined!", http.StatusNotFound)
 		return
 	}
+	currentMetrics, err := handler.metricsStorage.GetMetricsValue(metricsName)
+	if err != nil {
+		http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
+		return
+	}
 	switch metricsType {
 	case models.Counter:
 		{
-			if _, err := strconv.Atoi(metricsValue); err != nil {
+			value, err := strconv.Atoi(metricsValue)
+			if err != nil {
 				http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
 				return
 			}
+			*currentMetrics.Delta += int64(value)
 		}
 	case models.Gauge:
 		{
-			if _, err := strconv.ParseFloat(metricsValue, 64); err != nil {
+			value, err := strconv.ParseFloat(metricsValue, 64)
+			if err != nil {
 				http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
 				return
 			}
+			*currentMetrics.Value = float64(value)
 		}
 	}
-
+	if err := handler.metricsStorage.UpdateMetricsValue(metricsName, currentMetrics); err != nil {
+		http.Error(rw, "error update metrics on server", http.StatusInternalServerError)
+		return
+	}
 	rw.Header().Set("Content-type", "text/plain")
 	rw.WriteHeader(http.StatusOK)
 
@@ -50,6 +64,7 @@ func (handler *MetricsHandler) ReceiveMetrics(rw http.ResponseWriter, request *h
 
 func main() {
 	handler := MetricsHandler{}
+	handler.metricsStorage.InitializeStorage()
 	r := chi.NewRouter()
 	r.Route("/update", func(r chi.Router) {
 		r.Post("/{metricsType}/{metricsName}/metricsValue", handler.ReceiveMetrics)
