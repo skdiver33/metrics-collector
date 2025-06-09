@@ -48,10 +48,16 @@ func (metrics *Metrics) SetMetricsValue(newValue string) error {
 	switch metrics.MType {
 	case Counter:
 		{
+
 			value, err := strconv.Atoi(newValue)
 			if err != nil {
 				return errors.New("wrong metrics type")
 
+			}
+			if metrics.Delta == nil {
+				newValue := int64(0) + int64(value)
+				metrics.Delta = &newValue
+				break
 			}
 			*metrics.Delta += int64(value)
 		}
@@ -61,6 +67,10 @@ func (metrics *Metrics) SetMetricsValue(newValue string) error {
 			if err != nil {
 				return errors.New("wrong metrics type")
 
+			}
+			if metrics.Value == nil {
+				metrics.Value = &value
+				break
 			}
 			*metrics.Value = float64(value)
 		}
@@ -95,5 +105,7 @@ var GaugeMetricsNames = []string{"Alloc",
 	"StackSys",
 	"Sys",
 	"TotalAlloc",
-	"RandomValue"}
-var CounterMetricsNames = []string{"PollCount"}
+	"RandomValue",
+	"testGauge",
+}
+var CounterMetricsNames = []string{"PollCount", "testCounter"}

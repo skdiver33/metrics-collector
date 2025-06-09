@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/go-chi/chi"
 	"github.com/skdiver33/metrics-collector/internal/store"
 	"github.com/skdiver33/metrics-collector/models"
 )
@@ -18,6 +19,11 @@ func (handler *MetricsHandler) receiveMetricsHandler(rw http.ResponseWriter, req
 	metricsName := chi.URLParam(request, "metricsName")
 	metricsValue := chi.URLParam(request, "metricsValue")
 
+	//for testing
+	if strings.Contains(metricsName, "testSetGet") {
+		handler.metricsStorage.AddMetrics(metricsName, models.Metrics{MType: metricsType})
+	}
+
 	if strings.Compare(metricsType, models.Counter) != 0 && strings.Compare(metricsType, models.Gauge) != 0 {
 		http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
 		return
@@ -29,11 +35,11 @@ func (handler *MetricsHandler) receiveMetricsHandler(rw http.ResponseWriter, req
 	}
 	currentMetrics, err := handler.metricsStorage.GetMetricsValue(metricsName)
 	if err != nil {
-		http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
+		http.Error(rw, "metrics not found", http.StatusBadRequest)
 		return
 	}
 	if err := currentMetrics.SetMetricsValue(metricsValue); err != nil {
-		http.Error(rw, "error set up new value in metrics", http.StatusInternalServerError)
+		http.Error(rw, "error set up new value in metrics", http.StatusBadRequest)
 		return
 	}
 	if err := handler.metricsStorage.UpdateMetricsValue(metricsName, currentMetrics); err != nil {
@@ -64,30 +70,35 @@ func (handler *MetricsHandler) returnAllMetricsHandler(rw http.ResponseWriter, r
 }
 
 func (handler *MetricsHandler) metricsInfoHandler(rw http.ResponseWriter, request *http.Request) {
-	metricsType := chi.URLParam(request, "metricsType")
+	//metricsType := chi.URLParam(request, "metricsType")
 	metricsName := chi.URLParam(request, "metricsName")
-	answer := metricsName + metricsType
+	//answer := metricsName + metricsType
 	metrics, err := handler.metricsStorage.GetMetricsValue(metricsName)
 	if err != nil {
-		http.Error(rw, "error get metrics name from storage", http.StatusInternalServerError)
+		http.Error(rw, "error get metrics from storage", http.StatusNotFound)
 		return
 	}
-	answer += metrics.GetMetricsValue()
+	//answer += metrics.GetMetricsValue()
 	rw.Header().Set("Content-type", "text/plain")
 	rw.WriteHeader(http.StatusOK)
-	rw.Write([]byte(answer))
+	rw.Write([]byte(metrics.GetMetricsValue()))
 }
 
-func main() {
+func MetricRouter() chi.Router {
 	handler := MetricsHandler{}
 	handler.metricsStorage.InitializeStorage()
+	//	fmt.Println(handler.metricsStorage)
 	r := chi.NewRouter()
 	r.Route("/", func(r chi.Router) {
 		r.Get("/", handler.returnAllMetricsHandler)
 		r.Get("/value/{metricsType}/{metricsName}", handler.metricsInfoHandler)
-		r.Post("/update/{metricsType}/{metricsName}/metricsValue", handler.receiveMetricsHandler)
+		r.Post("/update/{metricsType}/{metricsName}/{metricsValue}", handler.receiveMetricsHandler)
 	})
-	if err := http.ListenAndServe("localhost:8080", r); err != nil {
+	return r
+}
+
+func main() {
+	if err := http.ListenAndServe("localhost:8080", MetricRouter()); err != nil {
 		panic("Error start server")
 	}
 
