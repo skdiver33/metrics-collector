@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestServeHTTP(t *testing.T) {
+func TestMetricsHandler(t *testing.T) {
 	type want struct {
 		code        int
 		contentType string
@@ -49,8 +49,8 @@ func TestServeHTTP(t *testing.T) {
 			request := httptest.NewRequest(http.MethodPost, test.request, nil)
 			// создаём новый Recorder
 			w := httptest.NewRecorder()
-			handler := MetricsHandler{}
-			handler.ServeHTTP(w, request)
+
+			MetricsHandler(w, request)
 
 			res := w.Result()
 			// проверяем код ответа

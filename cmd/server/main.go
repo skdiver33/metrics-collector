@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -8,21 +9,28 @@ import (
 	"github.com/skdiver33/metrics-collector/models"
 )
 
-type MetricsHandler struct{}
-
-func (handler *MetricsHandler) ServeHTTP(rw http.ResponseWriter, request *http.Request) {
+func MetricsHandler(rw http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodPost {
 		http.Error(rw, "Only Post requests are allowed!", http.StatusMethodNotAllowed)
 		return
 	}
-	metricsData := strings.Split(request.URL.Path, "/")
-	if len(metricsData) != 4 {
+
+	metrics, ok := strings.CutPrefix(request.URL.Path, "/update/")
+	if !ok {
+		http.Error(rw, "internal server error", http.StatusNotFound)
+		return
+	}
+	metrics, _ = strings.CutSuffix(metrics, "/")
+
+	metricsData := strings.Split(metrics, "/")
+	fmt.Print(metricsData)
+	if len(metricsData) != 3 {
 		http.Error(rw, "Not all metrics data defined!", http.StatusNotFound)
 		return
 	}
-	metricsType := metricsData[1]
-	metricsName := metricsData[2]
-	metricsValue := metricsData[3]
+	metricsType := metricsData[0]
+	metricsName := metricsData[1]
+	metricsValue := metricsData[2]
 
 	if strings.Compare(metricsType, models.Counter) != 0 && strings.Compare(metricsType, models.Gauge) != 0 {
 		http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
@@ -56,7 +64,7 @@ func (handler *MetricsHandler) ServeHTTP(rw http.ResponseWriter, request *http.R
 
 func main() {
 	mux := http.NewServeMux()
-	mux.Handle("/update/", http.StripPrefix("/update", &MetricsHandler{}))
+	mux.HandleFunc("/update/", MetricsHandler)
 	if err := http.ListenAndServe("localhost:8080", mux); err != nil {
 		panic("Error start server")
 	}
