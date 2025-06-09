@@ -8,7 +8,7 @@ import (
 )
 
 type MemStorage struct {
-	Storage map[string]models.Metrics
+	storage map[string]models.Metrics
 }
 
 type Storage interface {
@@ -19,12 +19,33 @@ type Storage interface {
 	RemoveMetrics(metricsName string) error
 }
 
+func (inMemmory *MemStorage) InitializeStorage() error {
+	inMemmory.storage = make(map[string]models.Metrics)
+	for _, metricsName := range models.GaugeMetricsNames {
+		metrics := models.Metrics{}
+		metrics.MType = models.Gauge
+		if err := inMemmory.AddMetrics(metricsName, metrics); err != nil {
+			fmt.Println("Error initialize storage.")
+			return err
+		}
+	}
+	for _, metricsName := range models.CounterMetricsNames {
+		metrics := models.Metrics{}
+		metrics.MType = models.Counter
+		if err := inMemmory.AddMetrics(metricsName, metrics); err != nil {
+			fmt.Println("Error initialize storage.")
+			return err
+		}
+	}
+	return nil
+}
+
 type storageError struct {
 	description string
 }
 
 func (e storageError) Error() string {
-	return fmt.Sprintf("Storage Error!. %s", e.description)
+	return fmt.Sprintf("storage Error!. %s", e.description)
 }
 
 func (inMemmory *MemStorage) AddMetrics(metricsName string, metricsValue models.Metrics) error {
@@ -33,13 +54,13 @@ func (inMemmory *MemStorage) AddMetrics(metricsName string, metricsValue models.
 		return &storageError{"Metrics Already exist in storage"}
 	}
 
-	inMemmory.Storage[metricsName] = metricsValue
+	inMemmory.storage[metricsName] = metricsValue
 	return nil
 
 }
 
 func (inMemmory *MemStorage) GetMetricsValue(metricsName string) (models.Metrics, error) {
-	metrics, ok := inMemmory.Storage[metricsName]
+	metrics, ok := inMemmory.storage[metricsName]
 	if !ok {
 		metrics = models.Metrics{}
 		return metrics, &storageError{"Metrics with name not found!"}
@@ -54,13 +75,13 @@ func (inMemmory *MemStorage) UpdateMetricsValue(metricsName string, metricsValue
 	if err != nil {
 		return &storageError{fmt.Sprintf("Error update value! %s", err.Error())}
 	}
-	inMemmory.Storage[metricsName] = metricsValue
+	inMemmory.storage[metricsName] = metricsValue
 	return nil
 }
 
 func (inMemmory *MemStorage) GetAllMetricsNames() ([]string, error) {
 	allMetricsNames := make([]string, 0)
-	for metricsName := range inMemmory.Storage {
+	for metricsName := range inMemmory.storage {
 		allMetricsNames = append(allMetricsNames, metricsName)
 
 	}

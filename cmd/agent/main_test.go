@@ -26,7 +26,7 @@ func TestAgent_SendMetrics(t *testing.T) {
 			agent := &Agent{
 				metricStorage: tt.fields.metricStorage,
 			}
-			agent.InitializeStorage()
+			agent.metricStorage.InitializeStorage()
 			agent.UpdateMetrics()
 			if err := agent.SendMetrics(); (err != nil) != tt.wantErr {
 				t.Errorf("Agent.SendMetrics() error = %v, wantErr %v", err, tt.wantErr)

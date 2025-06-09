@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -9,30 +8,14 @@ import (
 	"github.com/skdiver33/metrics-collector/models"
 )
 
-type MetricsHandler struct{}
+type MetricsHandler struct {
+}
 
 func (handler *MetricsHandler) ReceiveMetrics(rw http.ResponseWriter, request *http.Request) {
-	if request.Method != http.MethodPost {
-		http.Error(rw, "Only Post requests are allowed!", http.StatusMethodNotAllowed)
-		return
-	}
 
-	metrics, ok := strings.CutPrefix(request.URL.Path, "/update/")
-	if !ok {
-		http.Error(rw, "internal server error", http.StatusNotFound)
-		return
-	}
-	metrics, _ = strings.CutSuffix(metrics, "/")
-
-	metricsData := strings.Split(metrics, "/")
-	fmt.Print(metricsData)
-	if len(metricsData) != 3 {
-		http.Error(rw, "Not all metrics data defined!", http.StatusNotFound)
-		return
-	}
-	metricsType := metricsData[0]
-	metricsName := metricsData[1]
-	metricsValue := metricsData[2]
+	metricsType := chi.URLParam(request, "metricsType")
+	metricsName := chi.URLParam(request, "metricsName")
+	metricsValue := chi.URLParam(request, "metricsValue")
 
 	if strings.Compare(metricsType, models.Counter) != 0 && strings.Compare(metricsType, models.Gauge) != 0 {
 		http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
@@ -59,6 +42,7 @@ func (handler *MetricsHandler) ReceiveMetrics(rw http.ResponseWriter, request *h
 			}
 		}
 	}
+
 	rw.Header().Set("Content-type", "text/plain")
 	rw.WriteHeader(http.StatusOK)
 
@@ -66,9 +50,12 @@ func (handler *MetricsHandler) ReceiveMetrics(rw http.ResponseWriter, request *h
 
 func main() {
 	handler := MetricsHandler{}
-	mux := http.NewServeMux()
-	mux.HandleFunc("/update/", handler.ReceiveMetrics)
-	if err := http.ListenAndServe("localhost:8080", mux); err != nil {
+	r := chi.NewRouter()
+	r.Route("/update", func(r chi.Router) {
+		r.Post("/{metricsType}/{metricsName}/metricsValue", handler.ReceiveMetrics)
+	})
+	if err := http.ListenAndServe("localhost:8080", r); err != nil {
 		panic("Error start server")
 	}
+
 }

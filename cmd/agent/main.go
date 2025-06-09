@@ -14,36 +14,6 @@ import (
 	"github.com/skdiver33/metrics-collector/models"
 )
 
-var gaugeMetricsName = []string{"Alloc",
-	"BuckHashSys",
-	"Frees",
-	"GCCPUFraction",
-	"GCSys",
-	"HeapAlloc",
-	"HeapIdle",
-	"HeapInuse",
-	"HeapObjects",
-	"HeapReleased",
-	"HeapSys",
-	"LastGC",
-	"Lookups",
-	"MCacheInuse",
-	"MCacheSys",
-	"MSpanInuse",
-	"MSpanSys",
-	"Mallocs",
-	"NextGC",
-	"NumForcedGC",
-	"NumGC",
-	"OtherSys",
-	"PauseTotalNs",
-	"StackInuse",
-	"StackSys",
-	"Sys",
-	"TotalAlloc",
-	"RandomValue"}
-var counterMetricsName = []string{"PollCount"}
-
 type Agent struct {
 	metricStorage store.MemStorage
 }
@@ -109,29 +79,6 @@ func (agent *Agent) UpdateMetrics() error {
 	return nil
 }
 
-func (agent *Agent) InitializeStorage() error {
-	storage := store.MemStorage{}
-	storage.Storage = make(map[string]models.Metrics)
-	for _, metricsName := range gaugeMetricsName {
-		metrics := models.Metrics{}
-		metrics.MType = models.Gauge
-		if err := storage.AddMetrics(metricsName, metrics); err != nil {
-			fmt.Println("Error initialize storage.")
-			return err
-		}
-	}
-	for _, metricsName := range counterMetricsName {
-		metrics := models.Metrics{}
-		metrics.MType = models.Counter
-		if err := storage.AddMetrics(metricsName, metrics); err != nil {
-			fmt.Println("Error initialize storage.")
-			return err
-		}
-	}
-	agent.metricStorage = storage
-	return nil
-}
-
 func (agent *Agent) SendMetrics() error {
 	requestPattern := "http://localhost:8080/update/%s/%s/%s"
 
@@ -170,7 +117,7 @@ func (agent *Agent) SendMetrics() error {
 }
 
 func (agent *Agent) MainLoop() error {
-	if err := agent.InitializeStorage(); err != nil {
+	if err := agent.metricStorage.InitializeStorage(); err != nil {
 		return err
 	}
 	poolInterval := 2
