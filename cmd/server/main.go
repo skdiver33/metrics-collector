@@ -2,7 +2,6 @@ package main
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/skdiver33/metrics-collector/internal/store"
@@ -13,7 +12,7 @@ type MetricsHandler struct {
 	metricsStorage store.MemStorage
 }
 
-func (handler *MetricsHandler) ReceiveMetrics(rw http.ResponseWriter, request *http.Request) {
+func (handler *MetricsHandler) receiveMetricsHandler(rw http.ResponseWriter, request *http.Request) {
 
 	metricsType := chi.URLParam(request, "metricsType")
 	metricsName := chi.URLParam(request, "metricsName")
@@ -33,25 +32,9 @@ func (handler *MetricsHandler) ReceiveMetrics(rw http.ResponseWriter, request *h
 		http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
 		return
 	}
-	switch metricsType {
-	case models.Counter:
-		{
-			value, err := strconv.Atoi(metricsValue)
-			if err != nil {
-				http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
-				return
-			}
-			*currentMetrics.Delta += int64(value)
-		}
-	case models.Gauge:
-		{
-			value, err := strconv.ParseFloat(metricsValue, 64)
-			if err != nil {
-				http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
-				return
-			}
-			*currentMetrics.Value = float64(value)
-		}
+	if err := currentMetrics.SetMetricsValue(metricsValue); err != nil {
+		http.Error(rw, "error set up new value in metrics", http.StatusInternalServerError)
+		return
 	}
 	if err := handler.metricsStorage.UpdateMetricsValue(metricsName, currentMetrics); err != nil {
 		http.Error(rw, "error update metrics on server", http.StatusInternalServerError)
@@ -62,12 +45,47 @@ func (handler *MetricsHandler) ReceiveMetrics(rw http.ResponseWriter, request *h
 
 }
 
+func (handler *MetricsHandler) returnAllMetricsHandler(rw http.ResponseWriter, request *http.Request) {
+	answer := "<!DOCTYPE html>\n<html>\n<head>\n<title> Known metrics </title>\n</head>\n"
+	metricsNames, err := handler.metricsStorage.GetAllMetricsNames()
+	if err != nil {
+		http.Error(rw, "error get metrics name from storage", http.StatusInternalServerError)
+		return
+	}
+	for _, name := range metricsNames {
+		metrics, _ := handler.metricsStorage.GetMetricsValue(name)
+		answer = answer + name + metrics.MType + metrics.GetMetricsValue() + "\n"
+	}
+	answer += "</html>"
+	rw.Header().Set("Content-type", "text/html")
+	rw.WriteHeader(http.StatusOK)
+	rw.Write([]byte(answer))
+
+}
+
+func (handler *MetricsHandler) metricsInfoHandler(rw http.ResponseWriter, request *http.Request) {
+	metricsType := chi.URLParam(request, "metricsType")
+	metricsName := chi.URLParam(request, "metricsName")
+	answer := metricsName + metricsType
+	metrics, err := handler.metricsStorage.GetMetricsValue(metricsName)
+	if err != nil {
+		http.Error(rw, "error get metrics name from storage", http.StatusInternalServerError)
+		return
+	}
+	answer += metrics.GetMetricsValue()
+	rw.Header().Set("Content-type", "text/plain")
+	rw.WriteHeader(http.StatusOK)
+	rw.Write([]byte(answer))
+}
+
 func main() {
 	handler := MetricsHandler{}
 	handler.metricsStorage.InitializeStorage()
 	r := chi.NewRouter()
-	r.Route("/update", func(r chi.Router) {
-		r.Post("/{metricsType}/{metricsName}/metricsValue", handler.ReceiveMetrics)
+	r.Route("/", func(r chi.Router) {
+		r.Get("/", handler.returnAllMetricsHandler)
+		r.Get("/value/{metricsType}/{metricsName}", handler.metricsInfoHandler)
+		r.Post("/update/{metricsType}/{metricsName}/metricsValue", handler.receiveMetricsHandler)
 	})
 	if err := http.ListenAndServe("localhost:8080", r); err != nil {
 		panic("Error start server")
