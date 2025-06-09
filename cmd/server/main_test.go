@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestMetricsHandler(t *testing.T) {
+func TestReceiveMetrics(t *testing.T) {
 	type want struct {
 		code        int
 		contentType string
@@ -50,7 +50,8 @@ func TestMetricsHandler(t *testing.T) {
 			// создаём новый Recorder
 			w := httptest.NewRecorder()
 
-			MetricsHandler(w, request)
+			handler := MetricsHandler{}
+			handler.ReceiveMetrics(w, request)
 
 			res := w.Result()
 			// проверяем код ответа

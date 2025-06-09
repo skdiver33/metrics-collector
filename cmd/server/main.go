@@ -9,7 +9,9 @@ import (
 	"github.com/skdiver33/metrics-collector/models"
 )
 
-func MetricsHandler(rw http.ResponseWriter, request *http.Request) {
+type MetricsHandler struct{}
+
+func (handler *MetricsHandler) ReceiveMetrics(rw http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodPost {
 		http.Error(rw, "Only Post requests are allowed!", http.StatusMethodNotAllowed)
 		return
@@ -63,8 +65,9 @@ func MetricsHandler(rw http.ResponseWriter, request *http.Request) {
 }
 
 func main() {
+	handler := MetricsHandler{}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/update/", MetricsHandler)
+	mux.HandleFunc("/update/", handler.ReceiveMetrics)
 	if err := http.ListenAndServe("localhost:8080", mux); err != nil {
 		panic("Error start server")
 	}
