@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"reflect"
 	"runtime"
-	"strconv"
 	"time"
 
 	"github.com/skdiver33/metrics-collector/internal/store"
@@ -37,6 +36,7 @@ func (agent *Agent) UpdateMetrics() error {
 			fmt.Printf("Error get current value metrics for name %s\n", name)
 			return err
 		}
+
 		switch currentMetrics.MType {
 		case models.Gauge:
 			{
@@ -86,22 +86,18 @@ func (agent *Agent) SendMetrics() error {
 	if err != nil {
 		return err
 	}
-
+	//remake with new interface of metrics
 	for _, name := range allMMetricsName {
 		currentMetrics, err := agent.metricStorage.GetMetricsValue(name)
 		if err != nil {
 			fmt.Print(err.Error())
 			return err
 		}
-		var value string
+
 		if currentMetrics.Value == nil && currentMetrics.Delta == nil {
 			return errors.New("error! update metrics before send")
 		}
-		if currentMetrics.Value != nil {
-			value = strconv.FormatFloat(*currentMetrics.Value, 'f', -1, 64)
-		} else {
-			value = strconv.Itoa(int(*currentMetrics.Delta))
-		}
+		value := currentMetrics.GetMetricsValue()
 		response, err := http.Post(fmt.Sprintf(requestPattern, currentMetrics.MType, name, value), "Content-Type: text/plain", nil)
 		if err != nil {
 			fmt.Println(err)
