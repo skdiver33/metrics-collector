@@ -22,7 +22,7 @@ func (handler *MetricsHandler) receiveMetricsHandler(rw http.ResponseWriter, req
 	metricsName := chi.URLParam(request, "metricsName")
 	metricsValue := chi.URLParam(request, "metricsValue")
 
-	//for testing
+	//for testing 3 iteration add test metrics name in storage
 	if strings.Contains(metricsName, "testSetGet") {
 		handler.metricsStorage.AddMetrics(metricsName, models.Metrics{MType: metricsType})
 	}
@@ -73,15 +73,12 @@ func (handler *MetricsHandler) returnAllMetricsHandler(rw http.ResponseWriter, r
 }
 
 func (handler *MetricsHandler) metricsInfoHandler(rw http.ResponseWriter, request *http.Request) {
-	//metricsType := chi.URLParam(request, "metricsType")
 	metricsName := chi.URLParam(request, "metricsName")
-	//answer := metricsName + metricsType
 	metrics, err := handler.metricsStorage.GetMetricsValue(metricsName)
 	if err != nil {
 		http.Error(rw, "error get metrics from storage", http.StatusNotFound)
 		return
 	}
-	//answer += metrics.GetMetricsValue()
 	rw.Header().Set("Content-type", "text/plain")
 	rw.WriteHeader(http.StatusOK)
 	rw.Write([]byte(metrics.GetMetricsValue()))
@@ -90,7 +87,6 @@ func (handler *MetricsHandler) metricsInfoHandler(rw http.ResponseWriter, reques
 func MetricRouter() chi.Router {
 	handler := MetricsHandler{}
 	handler.metricsStorage.InitializeStorage()
-	//	fmt.Println(handler.metricsStorage)
 	r := chi.NewRouter()
 	r.Route("/", func(r chi.Router) {
 		r.Get("/", handler.returnAllMetricsHandler)
@@ -101,9 +97,16 @@ func MetricRouter() chi.Router {
 }
 
 func main() {
+
 	serverFlags := flag.NewFlagSet("Start flags", flag.ExitOnError)
 	startAdress := serverFlags.String("a", "localhost:8080", "adress for start server")
 	serverFlags.Parse(os.Args[1:])
+
+	envServerAddr, ok := os.LookupEnv("ADDRESS")
+	if ok {
+		startAdress = &envServerAddr
+	}
+
 	if err := http.ListenAndServe(*startAdress, MetricRouter()); err != nil {
 		panic("Error start server")
 	}

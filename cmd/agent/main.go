@@ -9,6 +9,7 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/skdiver33/metrics-collector/internal/store"
@@ -100,7 +101,6 @@ func (agent *Agent) SendMetrics() error {
 	}
 	client := &http.Client{Transport: tr}
 
-	//remake with new interface of metrics
 	for _, name := range allMMetricsName {
 		currentMetrics, err := agent.metricStorage.GetMetricsValue(name)
 		if err != nil {
@@ -118,7 +118,6 @@ func (agent *Agent) SendMetrics() error {
 		}
 		defer response.Body.Close()
 		if response.StatusCode != http.StatusOK {
-			//return error send metrics to server
 			return errors.New("error update metrics on server!!! Response code not 200")
 		}
 	}
@@ -129,9 +128,6 @@ func (agent *Agent) MainLoop() error {
 	if err := agent.metricStorage.InitializeStorage(); err != nil {
 		return err
 	}
-	// poolInterval := 2
-	// reportInterval := 10
-	//period := reportInterval / pollInterval
 
 	min := min(reportInterval, pollInterval)
 	reportPeriod := reportInterval / min
@@ -143,14 +139,11 @@ func (agent *Agent) MainLoop() error {
 
 		time.Sleep(time.Duration(min) * time.Second)
 		if count%int(pollPeripd) == 0 {
-			fmt.Printf("Poll %d\n", count/int(pollPeripd))
 			if err := agent.UpdateMetrics(); err != nil {
 				return err
 			}
 		}
 		if count%int(reportPeriod) == 0 {
-			fmt.Print("Send data\n")
-			fmt.Printf("Send %d\n", count/int(reportPeriod))
 			if err := agent.SendMetrics(); err != nil {
 				return err
 			}
@@ -165,6 +158,32 @@ func main() {
 	agentFlags.UintVar(&reportInterval, "r", 10, "report interval in seconds. default 10.")
 	agentFlags.UintVar(&pollInterval, "p", 2, "poll interval in seconds. default 2.")
 	agentFlags.Parse(os.Args[1:])
+
+	envServerAddr, ok := os.LookupEnv("ADDRESS")
+	if ok {
+		serverAddress = envServerAddr
+	}
+
+	envReportInterval, ok := os.LookupEnv("REPORT_INTERVAL")
+	if ok {
+		interval, err := strconv.Atoi(envReportInterval)
+		if err != nil || interval < 0 {
+			fmt.Println("error value in environment variable REPORT_INTERVAL. Must be uint.")
+			return
+		}
+		reportInterval = uint(interval)
+	}
+
+	envPollInterval, ok := os.LookupEnv("POLL_INTERVAL")
+	if ok {
+		interval, err := strconv.Atoi(envPollInterval)
+		if err != nil || interval < 0 {
+			fmt.Println("error value in environment variable POLL_INTERVAL. Must be uint.")
+			return
+		}
+		pollInterval = uint(interval)
+	}
+
 	agent := Agent{}
 	if err := agent.MainLoop(); err != nil {
 		fmt.Print(err.Error())
