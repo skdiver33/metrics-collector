@@ -2,9 +2,11 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"math/rand"
 	"net/http"
+	"os"
 	"reflect"
 	"runtime"
 	"time"
@@ -16,6 +18,12 @@ import (
 type Agent struct {
 	metricStorage store.MemStorage
 }
+
+var (
+	serverAddress  string
+	pollInterval   uint
+	reportInterval uint
+)
 
 type MetricsCollector interface {
 	UpdateMetrics() error
@@ -80,12 +88,18 @@ func (agent *Agent) UpdateMetrics() error {
 }
 
 func (agent *Agent) SendMetrics() error {
-	requestPattern := "http://localhost:8080/update/%s/%s/%s"
+	requestPattern := "http://%s/%s/%s/%s"
 
 	allMMetricsName, err := agent.metricStorage.GetAllMetricsNames()
 	if err != nil {
 		return err
 	}
+
+	tr := &http.Transport{
+		ResponseHeaderTimeout: 10 * time.Second,
+	}
+	client := &http.Client{Transport: tr}
+
 	//remake with new interface of metrics
 	for _, name := range allMMetricsName {
 		currentMetrics, err := agent.metricStorage.GetMetricsValue(name)
@@ -98,9 +112,8 @@ func (agent *Agent) SendMetrics() error {
 			return errors.New("error! update metrics before send")
 		}
 		value := currentMetrics.GetMetricsValue()
-		response, err := http.Post(fmt.Sprintf(requestPattern, currentMetrics.MType, name, value), "Content-Type: text/plain", nil)
+		response, err := client.Post(fmt.Sprintf(requestPattern, serverAddress, currentMetrics.MType, name, value), "Content-Type: text/plain", nil)
 		if err != nil {
-			fmt.Println(err)
 			return err
 		}
 		defer response.Body.Close()
@@ -116,30 +129,42 @@ func (agent *Agent) MainLoop() error {
 	if err := agent.metricStorage.InitializeStorage(); err != nil {
 		return err
 	}
-	poolInterval := 2
-	reportInterval := 10
-	period := reportInterval / poolInterval
+	// poolInterval := 2
+	// reportInterval := 10
+	//period := reportInterval / pollInterval
+
+	min := min(reportInterval, pollInterval)
+	reportPeriod := reportInterval / min
+	pollPeripd := pollInterval / min
+	count := 0
+
 	for {
-		time.Sleep(time.Duration(poolInterval) * time.Second)
-		if err := agent.UpdateMetrics(); err != nil {
-			return err
+		count++
+
+		time.Sleep(time.Duration(min) * time.Second)
+		if count%int(pollPeripd) == 0 {
+			fmt.Printf("Poll %d\n", count/int(pollPeripd))
+			if err := agent.UpdateMetrics(); err != nil {
+				return err
+			}
 		}
-		val, err := agent.metricStorage.GetMetricsValue("PollCount")
-		if err != nil {
-			return err
-		}
-		if *val.Delta%int64(period) == 0 {
-			fmt.Print("Send data")
+		if count%int(reportPeriod) == 0 {
+			fmt.Print("Send data\n")
+			fmt.Printf("Send %d\n", count/int(reportPeriod))
 			if err := agent.SendMetrics(); err != nil {
 				return err
 			}
 		}
-		fmt.Println(*val.Delta)
 	}
 
 }
 
 func main() {
+	agentFlags := flag.NewFlagSet("Agent flags", flag.ExitOnError)
+	agentFlags.StringVar(&serverAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
+	agentFlags.UintVar(&reportInterval, "r", 10, "report interval in seconds. default 10.")
+	agentFlags.UintVar(&pollInterval, "p", 2, "poll interval in seconds. default 2.")
+	agentFlags.Parse(os.Args[1:])
 	agent := Agent{}
 	if err := agent.MainLoop(); err != nil {
 		fmt.Print(err.Error())

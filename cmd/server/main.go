@@ -1,7 +1,10 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/go-chi/chi"
@@ -52,7 +55,7 @@ func (handler *MetricsHandler) receiveMetricsHandler(rw http.ResponseWriter, req
 }
 
 func (handler *MetricsHandler) returnAllMetricsHandler(rw http.ResponseWriter, request *http.Request) {
-	answer := "<!DOCTYPE html>\n<html>\n<head>\n<title> Known metrics </title>\n</head>\n"
+	answer := "<!DOCTYPE html>\n<html>\n<head>\n<title> Known metrics </title>\n</head>\n<body\n>"
 	metricsNames, err := handler.metricsStorage.GetAllMetricsNames()
 	if err != nil {
 		http.Error(rw, "error get metrics name from storage", http.StatusInternalServerError)
@@ -60,9 +63,9 @@ func (handler *MetricsHandler) returnAllMetricsHandler(rw http.ResponseWriter, r
 	}
 	for _, name := range metricsNames {
 		metrics, _ := handler.metricsStorage.GetMetricsValue(name)
-		answer = answer + name + metrics.MType + metrics.GetMetricsValue() + "\n"
+		answer = fmt.Sprintf("<p>%s %s %s %s </p>\n", answer, name, metrics.MType, metrics.GetMetricsValue())
 	}
-	answer += "</html>"
+	answer += "</body>\n</html>"
 	rw.Header().Set("Content-type", "text/html")
 	rw.WriteHeader(http.StatusOK)
 	rw.Write([]byte(answer))
@@ -98,7 +101,10 @@ func MetricRouter() chi.Router {
 }
 
 func main() {
-	if err := http.ListenAndServe("localhost:8080", MetricRouter()); err != nil {
+	serverFlags := flag.NewFlagSet("Start flags", flag.ExitOnError)
+	startAdress := serverFlags.String("a", "localhost:8080", "adress for start server")
+	serverFlags.Parse(os.Args[1:])
+	if err := http.ListenAndServe(*startAdress, MetricRouter()); err != nil {
 		panic("Error start server")
 	}
 
