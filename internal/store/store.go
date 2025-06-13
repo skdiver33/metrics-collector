@@ -12,11 +12,11 @@ type MemStorage struct {
 }
 
 type Storage interface {
+	InitializeStorage() error
 	AddMetrics(metricsName string, metricsValue models.Metrics) error
-	UpdateMetricsValue(metricsName string, metricsValue models.Metrics) error
-	GetMetricsValue(metricsName string) (models.Metrics, error)
+	UpdateMetrics(metricsName string, metricsValue models.Metrics) error
+	GetMetrics(metricsName string) (models.Metrics, error)
 	GetAllMetricsNames() []string
-	RemoveMetrics(metricsName string) error
 }
 
 func (inMemmory *MemStorage) InitializeStorage() error {
@@ -40,18 +40,10 @@ func (inMemmory *MemStorage) InitializeStorage() error {
 	return nil
 }
 
-type storageError struct {
-	description string
-}
-
-func (e storageError) Error() string {
-	return fmt.Sprintf("storage Error!. %s", e.description)
-}
-
 func (inMemmory *MemStorage) AddMetrics(metricsName string, metricsValue models.Metrics) error {
-	_, err := inMemmory.GetMetricsValue(metricsName)
+	_, err := inMemmory.GetMetrics(metricsName)
 	if err == nil {
-		return &storageError{"Metrics Already exist in storage"}
+		return errors.New("metrics Already exist in storage")
 	}
 
 	inMemmory.storage[metricsName] = metricsValue
@@ -59,21 +51,22 @@ func (inMemmory *MemStorage) AddMetrics(metricsName string, metricsValue models.
 
 }
 
-func (inMemmory *MemStorage) GetMetricsValue(metricsName string) (models.Metrics, error) {
+func (inMemmory *MemStorage) GetMetrics(metricsName string) (models.Metrics, error) {
 	metrics, ok := inMemmory.storage[metricsName]
 	if !ok {
 		metrics = models.Metrics{}
-		return metrics, &storageError{"Metrics with name not found!"}
+		return metrics, errors.New("metrics with name not found")
 	}
 	return metrics, nil
 
 }
 
-func (inMemmory *MemStorage) UpdateMetricsValue(metricsName string, metricsValue models.Metrics) error {
-	_, err := inMemmory.GetMetricsValue(metricsName)
+func (inMemmory *MemStorage) UpdateMetrics(metricsName string, metricsValue models.Metrics) error {
+	_, err := inMemmory.GetMetrics(metricsName)
 
 	if err != nil {
-		return &storageError{fmt.Sprintf("Error update value! %s", err.Error())}
+		message := fmt.Sprintf("Error update value %s", err.Error())
+		return errors.New(message)
 	}
 	inMemmory.storage[metricsName] = metricsValue
 	return nil

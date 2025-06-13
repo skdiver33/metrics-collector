@@ -40,7 +40,7 @@ func (agent *Agent) UpdateMetrics() error {
 		return err
 	}
 	for _, name := range allMMetricsName {
-		currentMetrics, err := agent.metricStorage.GetMetricsValue(name)
+		currentMetrics, err := agent.metricStorage.GetMetrics(name)
 		if err != nil {
 			fmt.Printf("Error get current value metrics for name %s\n", name)
 			return err
@@ -80,7 +80,7 @@ func (agent *Agent) UpdateMetrics() error {
 				currentMetrics.Delta = &newValue
 			}
 		}
-		if err := agent.metricStorage.UpdateMetricsValue(name, currentMetrics); err != nil {
+		if err := agent.metricStorage.UpdateMetrics(name, currentMetrics); err != nil {
 			return err
 		}
 
@@ -102,7 +102,7 @@ func (agent *Agent) SendMetrics() error {
 	client := &http.Client{Transport: tr}
 
 	for _, name := range allMMetricsName {
-		currentMetrics, err := agent.metricStorage.GetMetricsValue(name)
+		currentMetrics, err := agent.metricStorage.GetMetrics(name)
 		if err != nil {
 			fmt.Print(err.Error())
 			return err

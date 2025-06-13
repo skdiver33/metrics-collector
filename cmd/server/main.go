@@ -36,7 +36,7 @@ func (handler *MetricsHandler) receiveMetricsHandler(rw http.ResponseWriter, req
 		http.Error(rw, "Not all metrics data defined!", http.StatusNotFound)
 		return
 	}
-	currentMetrics, err := handler.metricsStorage.GetMetricsValue(metricsName)
+	currentMetrics, err := handler.metricsStorage.GetMetrics(metricsName)
 	if err != nil {
 		http.Error(rw, "metrics not found", http.StatusBadRequest)
 		return
@@ -45,7 +45,7 @@ func (handler *MetricsHandler) receiveMetricsHandler(rw http.ResponseWriter, req
 		http.Error(rw, "error set up new value in metrics", http.StatusBadRequest)
 		return
 	}
-	if err := handler.metricsStorage.UpdateMetricsValue(metricsName, currentMetrics); err != nil {
+	if err := handler.metricsStorage.UpdateMetrics(metricsName, currentMetrics); err != nil {
 		http.Error(rw, "error update metrics on server", http.StatusInternalServerError)
 		return
 	}
@@ -62,7 +62,7 @@ func (handler *MetricsHandler) returnAllMetricsHandler(rw http.ResponseWriter, r
 		return
 	}
 	for _, name := range metricsNames {
-		metrics, _ := handler.metricsStorage.GetMetricsValue(name)
+		metrics, _ := handler.metricsStorage.GetMetrics(name)
 		answer = fmt.Sprintf("<p>%s %s %s %s </p>\n", answer, name, metrics.MType, metrics.GetMetricsValue())
 	}
 	answer += "</body>\n</html>"
@@ -74,7 +74,7 @@ func (handler *MetricsHandler) returnAllMetricsHandler(rw http.ResponseWriter, r
 
 func (handler *MetricsHandler) metricsInfoHandler(rw http.ResponseWriter, request *http.Request) {
 	metricsName := chi.URLParam(request, "metricsName")
-	metrics, err := handler.metricsStorage.GetMetricsValue(metricsName)
+	metrics, err := handler.metricsStorage.GetMetrics(metricsName)
 	if err != nil {
 		http.Error(rw, "error get metrics from storage", http.StatusNotFound)
 		return
