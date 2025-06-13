@@ -18,16 +18,16 @@ import (
 
 type Agent struct {
 	metricStorage store.MemStorage
-	config        agentConfig
+	config        AgentConfig
 }
 
-type agentConfig struct {
+type AgentConfig struct {
 	serverAddress  string
 	pollInterval   uint
 	reportInterval uint
 }
 
-func (config agentConfig) parseEnvVairable() {
+func (config *AgentConfig) ParseEnvVariable() {
 	envNames := []string{"ADDRESS", "REPORT_INTERVAL", "POLL_INTERVAL"}
 	for index, envName := range envNames {
 		varValue, ok := os.LookupEnv(envName)
@@ -189,14 +189,14 @@ func (agent *Agent) MainLoop() error {
 
 func main() {
 	agent := Agent{}
-	config := agentConfig{}
+
 	agentFlags := flag.NewFlagSet("Agent flags", flag.ExitOnError)
-	agentFlags.StringVar(&config.serverAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
-	agentFlags.UintVar(&config.reportInterval, "r", 10, "report interval in seconds. default 10.")
-	agentFlags.UintVar(&config.pollInterval, "p", 2, "poll interval in seconds. default 2.")
+	agentFlags.StringVar(&agent.config.serverAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
+	agentFlags.UintVar(&agent.config.reportInterval, "r", 10, "report interval in seconds. default 10.")
+	agentFlags.UintVar(&agent.config.pollInterval, "p", 2, "poll interval in seconds. default 2.")
 	agentFlags.Parse(os.Args[1:])
-	config.parseEnvVairable()
-	agent.config = config
+	agent.config.ParseEnvVariable()
+
 	if err := agent.MainLoop(); err != nil {
 		fmt.Print(err.Error())
 	}

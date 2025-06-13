@@ -25,6 +25,7 @@ func TestAgent_SendMetrics(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			agent := &Agent{
 				metricStorage: tt.fields.metricStorage,
+				config:        AgentConfig{serverAddress: "localhost:8080", pollInterval: 2, reportInterval: 10},
 			}
 			agent.metricStorage.InitializeStorage()
 			agent.UpdateMetrics()
