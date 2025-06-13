@@ -18,13 +18,48 @@ import (
 
 type Agent struct {
 	metricStorage store.MemStorage
+	config        agentConfig
 }
 
-var (
+type agentConfig struct {
 	serverAddress  string
 	pollInterval   uint
 	reportInterval uint
-)
+}
+
+func (config agentConfig) parseEnvVairable() {
+	envNames := []string{"ADDRESS", "REPORT_INTERVAL", "POLL_INTERVAL"}
+	for index, envName := range envNames {
+		varValue, ok := os.LookupEnv(envName)
+		if !ok {
+			continue
+		}
+		switch index {
+		case 0:
+			config.serverAddress = varValue
+		case 1:
+			{
+				interval, err := strconv.Atoi(varValue)
+				if err != nil || interval < 0 {
+					fmt.Println("error value in environment variable REPORT_INTERVAL. Must be uint.")
+					return
+				}
+				config.reportInterval = uint(interval)
+			}
+		case 2:
+			{
+				interval, err := strconv.Atoi(varValue)
+				if err != nil || interval < 0 {
+					fmt.Println("error value in environment variable POLL_INTERVAL. Must be uint.")
+					return
+				}
+				config.pollInterval = uint(interval)
+			}
+		}
+
+	}
+
+}
 
 type MetricsCollector interface {
 	UpdateMetrics() error
@@ -35,11 +70,11 @@ func (agent *Agent) UpdateMetrics() error {
 	memStat := runtime.MemStats{}
 	runtime.ReadMemStats(&memStat)
 	value := reflect.ValueOf(memStat)
-	allMMetricsName, err := agent.metricStorage.GetAllMetricsNames()
+	allMetricsName, err := agent.metricStorage.GetAllMetricsNames()
 	if err != nil {
 		return err
 	}
-	for _, name := range allMMetricsName {
+	for _, name := range allMetricsName {
 		currentMetrics, err := agent.metricStorage.GetMetrics(name)
 		if err != nil {
 			fmt.Printf("Error get current value metrics for name %s\n", name)
@@ -112,7 +147,7 @@ func (agent *Agent) SendMetrics() error {
 			return errors.New("error! update metrics before send")
 		}
 		value := currentMetrics.GetMetricsValue()
-		response, err := client.Post(fmt.Sprintf(requestPattern, serverAddress, currentMetrics.MType, name, value), "Content-Type: text/plain", nil)
+		response, err := client.Post(fmt.Sprintf(requestPattern, agent.config.serverAddress, currentMetrics.MType, name, value), "Content-Type: text/plain", nil)
 		if err != nil {
 			return err
 		}
@@ -129,16 +164,16 @@ func (agent *Agent) MainLoop() error {
 		return err
 	}
 
-	min := min(reportInterval, pollInterval)
-	reportPeriod := reportInterval / min
-	pollPeripd := pollInterval / min
+	min := min(agent.config.reportInterval, agent.config.pollInterval)
+	reportPeriod := agent.config.reportInterval / min
+	pollPeriod := agent.config.pollInterval / min
 	count := 0
 
 	for {
 		count++
 
 		time.Sleep(time.Duration(min) * time.Second)
-		if count%int(pollPeripd) == 0 {
+		if count%int(pollPeriod) == 0 {
 			if err := agent.UpdateMetrics(); err != nil {
 				return err
 			}
@@ -153,38 +188,15 @@ func (agent *Agent) MainLoop() error {
 }
 
 func main() {
-	agentFlags := flag.NewFlagSet("Agent flags", flag.ExitOnError)
-	agentFlags.StringVar(&serverAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
-	agentFlags.UintVar(&reportInterval, "r", 10, "report interval in seconds. default 10.")
-	agentFlags.UintVar(&pollInterval, "p", 2, "poll interval in seconds. default 2.")
-	agentFlags.Parse(os.Args[1:])
-
-	envServerAddr, ok := os.LookupEnv("ADDRESS")
-	if ok {
-		serverAddress = envServerAddr
-	}
-
-	envReportInterval, ok := os.LookupEnv("REPORT_INTERVAL")
-	if ok {
-		interval, err := strconv.Atoi(envReportInterval)
-		if err != nil || interval < 0 {
-			fmt.Println("error value in environment variable REPORT_INTERVAL. Must be uint.")
-			return
-		}
-		reportInterval = uint(interval)
-	}
-
-	envPollInterval, ok := os.LookupEnv("POLL_INTERVAL")
-	if ok {
-		interval, err := strconv.Atoi(envPollInterval)
-		if err != nil || interval < 0 {
-			fmt.Println("error value in environment variable POLL_INTERVAL. Must be uint.")
-			return
-		}
-		pollInterval = uint(interval)
-	}
-
 	agent := Agent{}
+	config := agentConfig{}
+	agentFlags := flag.NewFlagSet("Agent flags", flag.ExitOnError)
+	agentFlags.StringVar(&config.serverAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
+	agentFlags.UintVar(&config.reportInterval, "r", 10, "report interval in seconds. default 10.")
+	agentFlags.UintVar(&config.pollInterval, "p", 2, "poll interval in seconds. default 2.")
+	agentFlags.Parse(os.Args[1:])
+	config.parseEnvVairable()
+	agent.config = config
 	if err := agent.MainLoop(); err != nil {
 		fmt.Print(err.Error())
 	}
