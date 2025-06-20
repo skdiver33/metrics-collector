@@ -6,14 +6,19 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/go-chi/chi"
+	types "github.com/skdiver33/metrics-collector/internal/server"
 	"github.com/skdiver33/metrics-collector/internal/store"
 	"github.com/skdiver33/metrics-collector/models"
 )
 
 type MetricsHandler struct {
 	metricsStorage store.MemStorage
+	sugar          zap.SugaredLogger
 }
 
 func (handler *MetricsHandler) receiveMetricsHandler(rw http.ResponseWriter, request *http.Request) {
@@ -84,10 +89,38 @@ func (handler *MetricsHandler) metricsInfoHandler(rw http.ResponseWriter, reques
 	rw.Write([]byte(metrics.GetMetricsValue()))
 }
 
+func (handler *MetricsHandler) requestLogger(h http.Handler) http.Handler {
+	logerFunc := func(w http.ResponseWriter, req *http.Request) {
+
+		start := time.Now()
+		responseData := &types.ResponseData{Status: 0, Size: 0}
+		lw := types.LoggingResponseWriter{ResponseWriter: w, ResponseData: responseData}
+
+		h.ServeHTTP(&lw, req)
+		duration := time.Since(start)
+		handler.sugar.Infoln(
+			"uri", req.RequestURI,
+			"method", req.Method,
+			"status", responseData.Status,
+			"duration", duration,
+			"size", responseData.Size,
+		)
+	}
+	return http.HandlerFunc(logerFunc)
+}
 func MetricRouter() chi.Router {
 	handler := MetricsHandler{}
 	handler.metricsStorage.InitializeStorage()
+
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		panic(err)
+	}
+	defer logger.Sync()
+	handler.sugar = *logger.Sugar()
 	r := chi.NewRouter()
+
+	r.Use(handler.requestLogger)
 	r.Route("/", func(r chi.Router) {
 		r.Get("/", handler.returnAllMetricsHandler)
 		r.Get("/value/{metricsType}/{metricsName}", handler.metricsInfoHandler)
