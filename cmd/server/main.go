@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
@@ -23,6 +24,7 @@ type MetricsHandler struct {
 
 func (handler *MetricsHandler) receiveMetricsHandler(rw http.ResponseWriter, request *http.Request) {
 
+	fmt.Print("Receive new metrics not JSON")
 	metricsType := chi.URLParam(request, "metricsType")
 	metricsName := chi.URLParam(request, "metricsName")
 	metricsValue := chi.URLParam(request, "metricsValue")
@@ -77,6 +79,99 @@ func (handler *MetricsHandler) returnAllMetricsHandler(rw http.ResponseWriter, r
 
 }
 
+func (handler *MetricsHandler) receiveJSONMetrics(rw http.ResponseWriter, request *http.Request) {
+	// requestType := request.Header.Get("Content-Type")
+	// if strings.Compare(requestType, "Content-Type:application/json") != 0 {
+	// 	http.Error(rw, "Wrong content type", http.StatusBadRequest)
+	// 	return
+	// }
+	receiveMetrics := models.Metrics{}
+	if err := json.NewDecoder(request.Body).Decode(&receiveMetrics); err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+	fmt.Print("Receive update metrics")
+	fmt.Println(receiveMetrics)
+	//for testing 7 iteration add test metrics name in storage
+	// if strings.Contains(receiveMetrics.ID, "GetSet") {
+	// 	handler.metricsStorage.AddMetrics(receiveMetrics.ID, models.Metrics{ID: receiveMetrics.ID, MType: receiveMetrics.MType})
+	// }
+
+	if strings.Compare(receiveMetrics.MType, models.Counter) != 0 && strings.Compare(receiveMetrics.MType, models.Gauge) != 0 {
+		http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
+		return
+	}
+
+	if receiveMetrics.ID == "" {
+		http.Error(rw, "not all metrics data defined!", http.StatusNotFound)
+		return
+	}
+	_, err := handler.metricsStorage.GetMetrics(receiveMetrics.ID)
+	if err != nil {
+		http.Error(rw, "metrics not found", http.StatusBadRequest)
+		return
+	}
+
+	if err := handler.metricsStorage.UpdateMetrics(receiveMetrics.ID, receiveMetrics); err != nil {
+		http.Error(rw, "error update metrics on server", http.StatusInternalServerError)
+		return
+	}
+
+	// rw.Header().Set("Content-type", "application/json")
+	// rw.WriteHeader(http.StatusOK)
+
+	resp, err := json.Marshal(receiveMetrics)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(http.StatusOK)
+	rw.Write(resp)
+}
+
+func (handler *MetricsHandler) getJSONMetrics(rw http.ResponseWriter, request *http.Request) {
+	// if strings.Compare(request.Header.Get("Content-type"), "application/json") != 0 {
+	// 	http.Error(rw, "Wrong content type", http.StatusBadRequest)
+	// 	return
+	// }
+
+	receiveMetrics := models.Metrics{}
+	if err := json.NewDecoder(request.Body).Decode(&receiveMetrics); err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+	//fmt.Println(receiveMetrics)
+	//for testing 7 iteration add test metrics name in storage
+	// if strings.Contains(receiveMetrics.ID, "GetSet") {
+	// 	if _, err := handler.metricsStorage.GetMetrics(receiveMetrics.ID); err != nil {
+	// 		handler.metricsStorage.AddMetrics(receiveMetrics.ID, models.Metrics{ID: receiveMetrics.ID, MType: receiveMetrics.MType})
+	// 	}
+	// }
+	response, err := handler.metricsStorage.GetMetrics(receiveMetrics.ID)
+	if err != nil {
+		http.Error(rw, "error get metrics from storage", http.StatusNotFound)
+		return
+	}
+	if response.MType == "counter" {
+		fmt.Println(response, "  ", *response.Delta)
+	}
+	resp, err := json.Marshal(response)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(http.StatusOK)
+	rw.Write(resp)
+	// rw.Header().Set("Content-Type", "application/json")
+	// rw.WriteHeader(http.StatusOK)
+	// if err := json.NewEncoder(rw).Encode(response); err != nil {
+	// 	http.Error(rw, err.Error(), http.StatusInternalServerError)
+	// 	return
+	// }
+}
+
 func (handler *MetricsHandler) metricsInfoHandler(rw http.ResponseWriter, request *http.Request) {
 	metricsName := chi.URLParam(request, "metricsName")
 	metrics, err := handler.metricsStorage.GetMetrics(metricsName)
@@ -108,6 +203,7 @@ func (handler *MetricsHandler) requestLogger(h http.Handler) http.Handler {
 	}
 	return http.HandlerFunc(logerFunc)
 }
+
 func MetricRouter() chi.Router {
 	handler := MetricsHandler{}
 	handler.metricsStorage.InitializeStorage()
@@ -123,8 +219,14 @@ func MetricRouter() chi.Router {
 	r.Use(handler.requestLogger)
 	r.Route("/", func(r chi.Router) {
 		r.Get("/", handler.returnAllMetricsHandler)
-		r.Get("/value/{metricsType}/{metricsName}", handler.metricsInfoHandler)
-		r.Post("/update/{metricsType}/{metricsName}/{metricsValue}", handler.receiveMetricsHandler)
+		r.Route("/value", func(r chi.Router) {
+			r.Post("/", handler.getJSONMetrics)
+			r.Get("/{metricsType}/{metricsName}", handler.metricsInfoHandler)
+		})
+		r.Route("/update", func(r chi.Router) {
+			r.Post("/", handler.receiveJSONMetrics)
+			r.Post("/{metricsType}/{metricsName}/{metricsValue}", handler.receiveMetricsHandler)
+		})
 	})
 	return r
 }
@@ -141,7 +243,7 @@ func main() {
 	}
 
 	if err := http.ListenAndServe(*startAdress, MetricRouter()); err != nil {
-		panic("Error start server")
+		panic(err.Error())
 	}
 
 }

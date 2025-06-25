@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"os"
@@ -159,7 +162,66 @@ func (agent *Agent) SendMetrics() error {
 	return nil
 }
 
+func (agent *Agent) SendJSONMetrics() error {
+	//requestPattern := "http://%s/update/"
+
+	allMMetricsName, err := agent.metricStorage.GetAllMetricsNames()
+	if err != nil {
+		return err
+	}
+
+	tr := &http.Transport{
+		// ResponseHeaderTimeout: 10 * time.Second,
+		// MaxIdleConns:          1,
+		// IdleConnTimeout: 30 * time.Second,
+	}
+	client := &http.Client{Transport: tr}
+	for _, name := range allMMetricsName {
+		currentMetrics, err := agent.metricStorage.GetMetrics(name)
+		if err != nil {
+			fmt.Print(err.Error())
+			return err
+		}
+
+		buf, err := json.Marshal(currentMetrics)
+		if err != nil {
+			return errors.New("error! json marshaling")
+		}
+		fmt.Println("Send data ", string(buf))
+		requestBody := bytes.NewBuffer(buf)
+
+		req, err := http.NewRequest("POST", "http://"+agent.config.serverAddress+"/update/", requestBody)
+		if err != nil {
+			return errors.New("error! create request")
+		}
+		req.Header.Set("Content-Type", "application/json")
+		//req.Close = true
+
+		response, err := client.Do(req)
+		//time.Sleep(1 * time.Second)
+		//response, err := client.Post(fmt.Sprintf(requestPattern, agent.config.serverAddress), "application/json", requestBody)
+		if err != nil {
+			fmt.Printf("Client error send data %s", err.Error())
+			//continue
+			return err
+		}
+
+		answer, err := io.ReadAll(response.Body)
+		if err != nil {
+			fmt.Printf("client error read body %s", err.Error())
+		}
+		fmt.Println(string(answer))
+
+		if response.StatusCode != http.StatusOK {
+			return errors.New("error update metrics on server!!! Response code not 200")
+		}
+		response.Body.Close()
+	}
+	return nil
+}
+
 func (agent *Agent) MainLoop() error {
+
 	if err := agent.metricStorage.InitializeStorage(); err != nil {
 		return err
 	}
@@ -178,8 +240,9 @@ func (agent *Agent) MainLoop() error {
 				return err
 			}
 		}
+		fmt.Println("Client!!! Send data")
 		if count%int(reportPeriod) == 0 {
-			if err := agent.SendMetrics(); err != nil {
+			if err := agent.SendJSONMetrics(); err != nil {
 				return err
 			}
 		}
@@ -189,7 +252,7 @@ func (agent *Agent) MainLoop() error {
 
 func main() {
 	agent := Agent{}
-
+	time.Sleep(2 * time.Second)
 	agentFlags := flag.NewFlagSet("Agent flags", flag.ExitOnError)
 	agentFlags.StringVar(&agent.config.serverAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
 	agentFlags.UintVar(&agent.config.reportInterval, "r", 10, "report interval in seconds. default 10.")
