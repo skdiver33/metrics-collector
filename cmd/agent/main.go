@@ -163,7 +163,6 @@ func (agent *Agent) SendMetrics() error {
 }
 
 func (agent *Agent) SendJSONMetrics() error {
-	//requestPattern := "http://%s/update/"
 
 	allMMetricsName, err := agent.metricStorage.GetAllMetricsNames()
 	if err != nil {
@@ -196,9 +195,9 @@ func (agent *Agent) SendJSONMetrics() error {
 		}
 		req.Header.Set("Content-Type", "application/json")
 		//req.Close = true
-
-		response, err := client.Do(req)
 		//time.Sleep(1 * time.Second)
+		response, err := client.Do(req)
+
 		//response, err := client.Post(fmt.Sprintf(requestPattern, agent.config.serverAddress), "application/json", requestBody)
 		if err != nil {
 			fmt.Printf("Client error send data %s", err.Error())
@@ -240,7 +239,7 @@ func (agent *Agent) MainLoop() error {
 				return err
 			}
 		}
-		fmt.Println("Client!!! Send data")
+		fmt.Println("Client work")
 		if count%int(reportPeriod) == 0 {
 			if err := agent.SendJSONMetrics(); err != nil {
 				return err
@@ -252,7 +251,6 @@ func (agent *Agent) MainLoop() error {
 
 func main() {
 	agent := Agent{}
-	time.Sleep(2 * time.Second)
 	agentFlags := flag.NewFlagSet("Agent flags", flag.ExitOnError)
 	agentFlags.StringVar(&agent.config.serverAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
 	agentFlags.UintVar(&agent.config.reportInterval, "r", 10, "report interval in seconds. default 10.")

@@ -3,14 +3,13 @@ package store
 import (
 	"errors"
 	"fmt"
-	"sync"
 
 	"github.com/skdiver33/metrics-collector/models"
 )
 
 type MemStorage struct {
 	storage map[string]models.Metrics
-	mu      sync.RWMutex
+	//mu      sync.RWMutex
 }
 
 type Storage interface {
@@ -48,16 +47,16 @@ func (inMemmory *MemStorage) AddMetrics(metricsName string, metricsValue models.
 	if err == nil {
 		return errors.New("metrics Already exist in storage")
 	}
-	inMemmory.mu.Lock()
-	defer inMemmory.mu.Unlock()
+	//inMemmory.mu.Lock()
+	//defer inMemmory.mu.Unlock()
 	inMemmory.storage[metricsName] = metricsValue
 	return nil
 
 }
 
 func (inMemmory *MemStorage) GetMetrics(metricsName string) (models.Metrics, error) {
-	inMemmory.mu.Lock()
-	defer inMemmory.mu.Unlock()
+	//inMemmory.mu.Lock()
+	//defer inMemmory.mu.Unlock()
 	metrics, ok := inMemmory.storage[metricsName]
 	if !ok {
 		metrics = models.Metrics{}
@@ -75,8 +74,8 @@ func (inMemmory *MemStorage) UpdateMetrics(metricsName string, metricsValue mode
 		message := fmt.Sprintf("Error update value %s", err.Error())
 		return errors.New(message)
 	}
-	inMemmory.mu.Lock()
-	defer inMemmory.mu.Unlock()
+	//inMemmory.mu.Lock()
+	//defer inMemmory.mu.Unlock()
 	inMemmory.storage[metricsName] = metricsValue
 	return nil
 }
@@ -84,8 +83,8 @@ func (inMemmory *MemStorage) UpdateMetrics(metricsName string, metricsValue mode
 func (inMemmory *MemStorage) GetAllMetricsNames() ([]string, error) {
 
 	allMetricsNames := make([]string, 0)
-	inMemmory.mu.Lock()
-	defer inMemmory.mu.Unlock()
+	//inMemmory.mu.Lock()
+	//defer inMemmory.mu.Unlock()
 	for metricsName := range inMemmory.storage {
 		allMetricsNames = append(allMetricsNames, metricsName)
 

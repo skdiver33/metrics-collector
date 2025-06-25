@@ -80,18 +80,13 @@ func (handler *MetricsHandler) returnAllMetricsHandler(rw http.ResponseWriter, r
 }
 
 func (handler *MetricsHandler) receiveJSONMetrics(rw http.ResponseWriter, request *http.Request) {
-	// requestType := request.Header.Get("Content-Type")
-	// if strings.Compare(requestType, "Content-Type:application/json") != 0 {
-	// 	http.Error(rw, "Wrong content type", http.StatusBadRequest)
-	// 	return
-	// }
+
 	receiveMetrics := models.Metrics{}
 	if err := json.NewDecoder(request.Body).Decode(&receiveMetrics); err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
-	fmt.Print("Receive update metrics")
-	fmt.Println(receiveMetrics)
+
 	//for testing 7 iteration add test metrics name in storage
 	// if strings.Contains(receiveMetrics.ID, "GetSet") {
 	// 	handler.metricsStorage.AddMetrics(receiveMetrics.ID, models.Metrics{ID: receiveMetrics.ID, MType: receiveMetrics.MType})
@@ -117,9 +112,6 @@ func (handler *MetricsHandler) receiveJSONMetrics(rw http.ResponseWriter, reques
 		return
 	}
 
-	// rw.Header().Set("Content-type", "application/json")
-	// rw.WriteHeader(http.StatusOK)
-
 	resp, err := json.Marshal(receiveMetrics)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
@@ -131,10 +123,6 @@ func (handler *MetricsHandler) receiveJSONMetrics(rw http.ResponseWriter, reques
 }
 
 func (handler *MetricsHandler) getJSONMetrics(rw http.ResponseWriter, request *http.Request) {
-	// if strings.Compare(request.Header.Get("Content-type"), "application/json") != 0 {
-	// 	http.Error(rw, "Wrong content type", http.StatusBadRequest)
-	// 	return
-	// }
 
 	receiveMetrics := models.Metrics{}
 	if err := json.NewDecoder(request.Body).Decode(&receiveMetrics); err != nil {
@@ -153,9 +141,7 @@ func (handler *MetricsHandler) getJSONMetrics(rw http.ResponseWriter, request *h
 		http.Error(rw, "error get metrics from storage", http.StatusNotFound)
 		return
 	}
-	if response.MType == "counter" {
-		fmt.Println(response, "  ", *response.Delta)
-	}
+
 	resp, err := json.Marshal(response)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
@@ -216,7 +202,7 @@ func MetricRouter() chi.Router {
 	handler.sugar = *logger.Sugar()
 	r := chi.NewRouter()
 
-	r.Use(handler.requestLogger)
+	//r.Use(handler.requestLogger)
 	r.Route("/", func(r chi.Router) {
 		r.Get("/", handler.returnAllMetricsHandler)
 		r.Route("/value", func(r chi.Router) {
