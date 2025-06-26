@@ -162,6 +162,36 @@ func (agent *Agent) SendMetrics() error {
 	return nil
 }
 
+// client := resty.New()
+// 	for _, name := range allMMetricsName {
+// 		currentMetrics, erro := agent.metricStorage.GetMetrics(name)
+// 		if erro != nil {
+// 			fmt.Print(erro.Error())
+// 			return erro
+// 		}
+// 		//time.Sleep(100 * time.Millisecond)
+// 		result := models.Metrics{}
+// 		fmt.Println("send metrics  ", currentMetrics)
+// 		var (
+// 			resp *resty.Response
+// 			err  error
+// 		)
+// 		resp, err = client.R().EnableTrace().
+// 			SetHeader("Content-Type", "application/json").
+// 			SetBody(currentMetrics).
+// 			SetResult(&result). // or SetResult(&AuthSuccess{}).
+// 			Post("http://localhost:8080/update/")
+
+// 		client.R().TraceInfo()
+// 		fmt.Println("post resp  ", resp, "   ", err)
+// 		if err != nil {
+// 			if err == io.EOF {
+// 				continue
+// 			}
+// 			fmt.Println(err.Error())
+// 			return err
+// 		}
+
 func (agent *Agent) SendJSONMetrics() error {
 
 	allMMetricsName, err := agent.metricStorage.GetAllMetricsNames()
@@ -170,23 +200,22 @@ func (agent *Agent) SendJSONMetrics() error {
 	}
 
 	tr := &http.Transport{
-		// ResponseHeaderTimeout: 10 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
 		// MaxIdleConns:          1,
 		// IdleConnTimeout: 30 * time.Second,
 	}
 	client := &http.Client{Transport: tr}
 	for _, name := range allMMetricsName {
-		currentMetrics, err := agent.metricStorage.GetMetrics(name)
-		if err != nil {
-			fmt.Print(err.Error())
-			return err
+		currentMetrics, erro := agent.metricStorage.GetMetrics(name)
+		if erro != nil {
+			fmt.Print(erro.Error())
+			return erro
 		}
-
 		buf, err := json.Marshal(currentMetrics)
 		if err != nil {
 			return errors.New("error! json marshaling")
 		}
-		fmt.Println("Send data ", string(buf))
+		//fmt.Println("Send data ", string(buf))
 		requestBody := bytes.NewBuffer(buf)
 
 		req, err := http.NewRequest("POST", "http://"+agent.config.serverAddress+"/update/", requestBody)
@@ -194,16 +223,16 @@ func (agent *Agent) SendJSONMetrics() error {
 			return errors.New("error! create request")
 		}
 		req.Header.Set("Content-Type", "application/json")
-		//req.Close = true
+		req.Close = true
 		//time.Sleep(1 * time.Second)
 		response, err := client.Do(req)
 
-		//response, err := client.Post(fmt.Sprintf(requestPattern, agent.config.serverAddress), "application/json", requestBody)
 		if err != nil {
-			fmt.Printf("Client error send data %s", err.Error())
+			fmt.Printf("Client error send data %s \n", err.Error())
 			//continue
 			return err
 		}
+		defer response.Body.Close()
 
 		answer, err := io.ReadAll(response.Body)
 		if err != nil {
@@ -214,7 +243,7 @@ func (agent *Agent) SendJSONMetrics() error {
 		if response.StatusCode != http.StatusOK {
 			return errors.New("error update metrics on server!!! Response code not 200")
 		}
-		response.Body.Close()
+
 	}
 	return nil
 }
@@ -239,7 +268,6 @@ func (agent *Agent) MainLoop() error {
 				return err
 			}
 		}
-		fmt.Println("Client work")
 		if count%int(reportPeriod) == 0 {
 			if err := agent.SendJSONMetrics(); err != nil {
 				return err

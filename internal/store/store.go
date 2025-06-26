@@ -3,13 +3,14 @@ package store
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/skdiver33/metrics-collector/models"
 )
 
 type MemStorage struct {
 	storage map[string]models.Metrics
-	//mu      sync.RWMutex
+	mu      *sync.Mutex
 }
 
 type Storage interface {
@@ -21,6 +22,7 @@ type Storage interface {
 }
 
 func (inMemmory *MemStorage) InitializeStorage() error {
+	inMemmory.mu = &sync.Mutex{}
 	inMemmory.storage = make(map[string]models.Metrics)
 	for _, metricsName := range models.GaugeMetricsNames {
 		val := 0.0
@@ -42,21 +44,14 @@ func (inMemmory *MemStorage) InitializeStorage() error {
 }
 
 func (inMemmory *MemStorage) AddMetrics(metricsName string, metricsValue models.Metrics) error {
-
-	_, err := inMemmory.GetMetrics(metricsName)
-	if err == nil {
-		return errors.New("metrics Already exist in storage")
-	}
-	//inMemmory.mu.Lock()
-	//defer inMemmory.mu.Unlock()
 	inMemmory.storage[metricsName] = metricsValue
 	return nil
 
 }
 
 func (inMemmory *MemStorage) GetMetrics(metricsName string) (models.Metrics, error) {
-	//inMemmory.mu.Lock()
-	//defer inMemmory.mu.Unlock()
+	inMemmory.mu.Lock()
+	defer inMemmory.mu.Unlock()
 	metrics, ok := inMemmory.storage[metricsName]
 	if !ok {
 		metrics = models.Metrics{}
@@ -68,26 +63,18 @@ func (inMemmory *MemStorage) GetMetrics(metricsName string) (models.Metrics, err
 
 func (inMemmory *MemStorage) UpdateMetrics(metricsName string, metricsValue models.Metrics) error {
 
-	_, err := inMemmory.GetMetrics(metricsName)
-
-	if err != nil {
-		message := fmt.Sprintf("Error update value %s", err.Error())
-		return errors.New(message)
-	}
-	//inMemmory.mu.Lock()
-	//defer inMemmory.mu.Unlock()
+	inMemmory.mu.Lock()
+	defer inMemmory.mu.Unlock()
 	inMemmory.storage[metricsName] = metricsValue
 	return nil
 }
 
 func (inMemmory *MemStorage) GetAllMetricsNames() ([]string, error) {
-
+	inMemmory.mu.Lock()
+	defer inMemmory.mu.Unlock()
 	allMetricsNames := make([]string, 0)
-	//inMemmory.mu.Lock()
-	//defer inMemmory.mu.Unlock()
 	for metricsName := range inMemmory.storage {
 		allMetricsNames = append(allMetricsNames, metricsName)
-
 	}
 	if len(allMetricsNames) == 0 {
 		return allMetricsNames, errors.New("empty storage! initialize before use")
