@@ -43,14 +43,20 @@ func NewMetricsHandler() (*MetricsHandler, error) {
 
 func (handler *MetricsHandler) receiveMetricsHandler(rw http.ResponseWriter, request *http.Request) {
 
-	fmt.Print("Receive new metrics not JSON")
+	//fmt.Print("Receive new metrics not JSON")
 	metricsType := chi.URLParam(request, "metricsType")
 	metricsName := chi.URLParam(request, "metricsName")
 	metricsValue := chi.URLParam(request, "metricsValue")
 
 	//for testing 3 iteration add test metrics name in storage
 	if strings.Contains(metricsName, "testSetGet") {
-		handler.metricsStorage.AddMetrics(metricsName, models.Metrics{MType: metricsType})
+		_, err := handler.metricsStorage.GetMetrics(metricsName)
+		if err != nil {
+			testMetrics := models.Metrics{ID: metricsName, MType: metricsType}
+			testMetrics.SetMetricsValue("0")
+			handler.metricsStorage.AddMetrics(metricsName, testMetrics)
+		}
+
 	}
 
 	if strings.Compare(metricsType, models.Counter) != 0 && strings.Compare(metricsType, models.Gauge) != 0 {

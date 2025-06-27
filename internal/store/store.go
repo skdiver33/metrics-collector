@@ -52,7 +52,8 @@ func (inMemmory *MemStorage) Initialize() error {
 }
 
 func (inMemmory *MemStorage) AddMetrics(metricsName string, metricsValue models.Metrics) error {
-
+	inMemmory.mu.Lock()
+	defer inMemmory.mu.Unlock()
 	inMemmory.storage[metricsName] = metricsValue
 	return nil
 

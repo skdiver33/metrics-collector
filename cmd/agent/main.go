@@ -149,7 +149,7 @@ func (agent *Agent) UpdateMetrics() error {
 }
 
 func (agent *Agent) SendMetrics() error {
-	requestPattern := "http://%s/%s/%s/%s"
+	requestPattern := "http://%s/update/%s/%s/%s"
 
 	allMMetricsName, err := agent.metricStorage.GetAllMetricsNames()
 	if err != nil {
@@ -157,7 +157,7 @@ func (agent *Agent) SendMetrics() error {
 	}
 
 	tr := &http.Transport{
-		ResponseHeaderTimeout: 10 * time.Second,
+		//ResponseHeaderTimeout: 10 * time.Second,
 	}
 	client := &http.Client{Transport: tr}
 
@@ -210,7 +210,7 @@ func (agent *Agent) SendJSONMetrics() error {
 		//fmt.Println("Send data ", string(buf))
 		requestBody := bytes.NewBuffer(buf)
 
-		req, err := http.NewRequest("POST", "http://"+agent.config.serverAddress+"/update/", requestBody)
+		req, err := http.NewRequest(http.MethodPost, "http://"+agent.config.serverAddress+"/update/", requestBody)
 		if err != nil {
 			return errors.New("error! create request")
 		}
