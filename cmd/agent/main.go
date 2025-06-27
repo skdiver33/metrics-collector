@@ -20,8 +20,29 @@ import (
 )
 
 type Agent struct {
-	metricStorage store.MemStorage
-	config        AgentConfig
+	metricStorage *store.MemStorage
+	config        *AgentConfig
+}
+
+func NewAgent() (*Agent, error) {
+	newAgent := Agent{}
+
+	config := AgentConfig{}
+	agentFlags := flag.NewFlagSet("Agent flags", flag.ExitOnError)
+	agentFlags.StringVar(&config.serverAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
+	agentFlags.UintVar(&config.reportInterval, "r", 10, "report interval in seconds. default 10.")
+	agentFlags.UintVar(&config.pollInterval, "p", 2, "poll interval in seconds. default 2.")
+	agentFlags.Parse(os.Args[1:])
+	config.ParseEnvVariable()
+	newAgent.config = &config
+
+	newStorage, err := store.NewMemStorage()
+	if err != nil {
+		return nil, err
+	}
+	newAgent.metricStorage = newStorage
+
+	return &newAgent, nil
 }
 
 type AgentConfig struct {
@@ -162,36 +183,6 @@ func (agent *Agent) SendMetrics() error {
 	return nil
 }
 
-// client := resty.New()
-// 	for _, name := range allMMetricsName {
-// 		currentMetrics, erro := agent.metricStorage.GetMetrics(name)
-// 		if erro != nil {
-// 			fmt.Print(erro.Error())
-// 			return erro
-// 		}
-// 		//time.Sleep(100 * time.Millisecond)
-// 		result := models.Metrics{}
-// 		fmt.Println("send metrics  ", currentMetrics)
-// 		var (
-// 			resp *resty.Response
-// 			err  error
-// 		)
-// 		resp, err = client.R().EnableTrace().
-// 			SetHeader("Content-Type", "application/json").
-// 			SetBody(currentMetrics).
-// 			SetResult(&result). // or SetResult(&AuthSuccess{}).
-// 			Post("http://localhost:8080/update/")
-
-// 		client.R().TraceInfo()
-// 		fmt.Println("post resp  ", resp, "   ", err)
-// 		if err != nil {
-// 			if err == io.EOF {
-// 				continue
-// 			}
-// 			fmt.Println(err.Error())
-// 			return err
-// 		}
-
 func (agent *Agent) SendJSONMetrics() error {
 
 	allMMetricsName, err := agent.metricStorage.GetAllMetricsNames()
@@ -250,10 +241,6 @@ func (agent *Agent) SendJSONMetrics() error {
 
 func (agent *Agent) MainLoop() error {
 
-	if err := agent.metricStorage.InitializeStorage(); err != nil {
-		return err
-	}
-
 	min := min(agent.config.reportInterval, agent.config.pollInterval)
 	reportPeriod := agent.config.reportInterval / min
 	pollPeriod := agent.config.pollInterval / min
@@ -278,15 +265,43 @@ func (agent *Agent) MainLoop() error {
 }
 
 func main() {
-	agent := Agent{}
-	agentFlags := flag.NewFlagSet("Agent flags", flag.ExitOnError)
-	agentFlags.StringVar(&agent.config.serverAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
-	agentFlags.UintVar(&agent.config.reportInterval, "r", 10, "report interval in seconds. default 10.")
-	agentFlags.UintVar(&agent.config.pollInterval, "p", 2, "poll interval in seconds. default 2.")
-	agentFlags.Parse(os.Args[1:])
-	agent.config.ParseEnvVariable()
+	agent, err := NewAgent()
+	if err != nil {
+		panic(err.Error())
+
+	}
 
 	if err := agent.MainLoop(); err != nil {
-		fmt.Print(err.Error())
+		panic(err.Error())
 	}
 }
+
+// client := resty.New()
+// 	for _, name := range allMMetricsName {
+// 		currentMetrics, erro := agent.metricStorage.GetMetrics(name)
+// 		if erro != nil {
+// 			fmt.Print(erro.Error())
+// 			return erro
+// 		}
+// 		//time.Sleep(100 * time.Millisecond)
+// 		result := models.Metrics{}
+// 		fmt.Println("send metrics  ", currentMetrics)
+// 		var (
+// 			resp *resty.Response
+// 			err  error
+// 		)
+// 		resp, err = client.R().EnableTrace().
+// 			SetHeader("Content-Type", "application/json").
+// 			SetBody(currentMetrics).
+// 			SetResult(&result). // or SetResult(&AuthSuccess{}).
+// 			Post("http://localhost:8080/update/")
+
+// 		client.R().TraceInfo()
+// 		fmt.Println("post resp  ", resp, "   ", err)
+// 		if err != nil {
+// 			if err == io.EOF {
+// 				continue
+// 			}
+// 			fmt.Println(err.Error())
+// 			return err
+// 		}

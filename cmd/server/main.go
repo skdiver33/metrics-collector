@@ -12,14 +12,33 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/go-chi/chi"
-	types "github.com/skdiver33/metrics-collector/internal/server"
+	serverLoggerTypes "github.com/skdiver33/metrics-collector/internal/server"
 	"github.com/skdiver33/metrics-collector/internal/store"
 	"github.com/skdiver33/metrics-collector/models"
 )
 
 type MetricsHandler struct {
-	metricsStorage store.MemStorage
+	metricsStorage *store.MemStorage
 	sugar          *zap.SugaredLogger
+}
+
+func NewMetricsHandler() (*MetricsHandler, error) {
+	newHandler := MetricsHandler{}
+
+	newMetricsStorage, err := store.NewMemStorage()
+	if err != nil {
+		return nil, err
+	}
+	newHandler.metricsStorage = newMetricsStorage
+
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		panic(err)
+	}
+	defer logger.Sync()
+	newHandler.sugar = logger.Sugar()
+
+	return &newHandler, nil
 }
 
 func (handler *MetricsHandler) receiveMetricsHandler(rw http.ResponseWriter, request *http.Request) {
@@ -93,7 +112,7 @@ func (handler *MetricsHandler) setJSONMetrics(rw http.ResponseWriter, request *h
 	}
 
 	if receiveMetrics.ID == "" {
-		http.Error(rw, "not all metrics data defined!", http.StatusNotFound)
+		http.Error(rw, "empty metrics name !", http.StatusNotFound)
 		return
 	}
 	_, err := handler.metricsStorage.GetMetrics(receiveMetrics.ID)
@@ -124,7 +143,7 @@ func (handler *MetricsHandler) getJSONMetrics(rw http.ResponseWriter, request *h
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
-	fmt.Println("get ", receiveMetrics)
+	//fmt.Println("get ", receiveMetrics)
 	response, err := handler.metricsStorage.GetMetrics(receiveMetrics.ID)
 	if err != nil {
 		http.Error(rw, "error get metrics from storage", http.StatusNotFound)
@@ -157,8 +176,8 @@ func (handler *MetricsHandler) requestLogger(h http.Handler) http.Handler {
 	logerFunc := func(w http.ResponseWriter, req *http.Request) {
 
 		start := time.Now()
-		responseData := &types.ResponseData{Status: 0, Size: 0}
-		lw := types.LoggingResponseWriter{ResponseWriter: w, ResponseData: responseData}
+		responseData := &serverLoggerTypes.ResponseData{Status: 0, Size: 0}
+		lw := serverLoggerTypes.LoggingResponseWriter{ResponseWriter: w, ResponseData: responseData}
 
 		h.ServeHTTP(&lw, req)
 		duration := time.Since(start)
@@ -173,19 +192,13 @@ func (handler *MetricsHandler) requestLogger(h http.Handler) http.Handler {
 	return http.HandlerFunc(logerFunc)
 }
 
-func MetricRouter() chi.Router {
-	handler := MetricsHandler{}
-	handler.metricsStorage.InitializeStorage()
-
-	// logger, err := zap.NewDevelopment()
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// defer logger.Sync()
-	// handler.sugar = logger.Sugar()
+func MetricsRouter() (*chi.Mux, error) {
+	handler, err := NewMetricsHandler()
+	if err != nil {
+		return nil, err
+	}
 	r := chi.NewRouter()
-
-	//r.Use(handler.requestLogger)
+	r.Use(handler.requestLogger)
 	r.Route("/", func(r chi.Router) {
 		r.Get("/", handler.returnAllMetricsHandler)
 		r.Route("/value", func(r chi.Router) {
@@ -197,7 +210,7 @@ func MetricRouter() chi.Router {
 			r.Post("/{metricsType}/{metricsName}/{metricsValue}", handler.receiveMetricsHandler)
 		})
 	})
-	return r
+	return r, nil
 }
 
 func main() {
@@ -205,27 +218,16 @@ func main() {
 	serverFlags := flag.NewFlagSet("Start flags", flag.ExitOnError)
 	startAdress := serverFlags.String("a", "localhost:8080", "adress for start server")
 	serverFlags.Parse(os.Args[1:])
-
 	envServerAddr, ok := os.LookupEnv("ADDRESS")
 	if ok {
 		startAdress = &envServerAddr
 	}
 
-	// handler := MetricsHandler{}
-	// handler.metricsStorage.InitializeStorage()
-	// r := chi.NewRouter()
-	// r.Route("/", func(r chi.Router) {
-	// 	r.Route("/value", func(r chi.Router) {
-	// 		r.Post("/", handler.getJSONMetrics)
-	// 	})
-	// 	r.Route("/update", func(r chi.Router) {
-	// 		r.Post("/", handler.receiveJSONMetrics)
-	// 	})
-	// })
-
-	r := MetricRouter()
-
-	if err := http.ListenAndServe(*startAdress, r); err != nil {
+	chiRouter, err := MetricsRouter()
+	if err != nil {
+		panic(err.Error())
+	}
+	if err := http.ListenAndServe(*startAdress, chiRouter); err != nil {
 		panic(err.Error())
 	}
 

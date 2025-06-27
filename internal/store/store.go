@@ -13,17 +13,25 @@ type MemStorage struct {
 	mu      *sync.Mutex
 }
 
+func NewMemStorage() (*MemStorage, error) {
+	newStorage := MemStorage{}
+	newStorage.mu = &sync.Mutex{}
+	newStorage.storage = make(map[string]models.Metrics)
+	if err := newStorage.Initialize(); err != nil {
+		return nil, err
+	}
+	return &newStorage, nil
+}
+
 type Storage interface {
-	InitializeStorage() error
+	Initialize() error
 	AddMetrics(metricsName string, metricsValue models.Metrics) error
 	UpdateMetrics(metricsName string, metricsValue models.Metrics) error
 	GetMetrics(metricsName string) (models.Metrics, error)
 	GetAllMetricsNames() []string
 }
 
-func (inMemmory *MemStorage) InitializeStorage() error {
-	inMemmory.mu = &sync.Mutex{}
-	inMemmory.storage = make(map[string]models.Metrics)
+func (inMemmory *MemStorage) Initialize() error {
 	for _, metricsName := range models.GaugeMetricsNames {
 		val := 0.0
 		metrics := models.Metrics{ID: metricsName, MType: models.Gauge, Value: &val}
@@ -44,6 +52,7 @@ func (inMemmory *MemStorage) InitializeStorage() error {
 }
 
 func (inMemmory *MemStorage) AddMetrics(metricsName string, metricsValue models.Metrics) error {
+
 	inMemmory.storage[metricsName] = metricsValue
 	return nil
 
@@ -54,7 +63,6 @@ func (inMemmory *MemStorage) GetMetrics(metricsName string) (models.Metrics, err
 	defer inMemmory.mu.Unlock()
 	metrics, ok := inMemmory.storage[metricsName]
 	if !ok {
-		metrics = models.Metrics{}
 		return metrics, errors.New("metrics with name not found")
 	}
 	return metrics, nil
@@ -62,7 +70,6 @@ func (inMemmory *MemStorage) GetMetrics(metricsName string) (models.Metrics, err
 }
 
 func (inMemmory *MemStorage) UpdateMetrics(metricsName string, metricsValue models.Metrics) error {
-
 	inMemmory.mu.Lock()
 	defer inMemmory.mu.Unlock()
 	inMemmory.storage[metricsName] = metricsValue
