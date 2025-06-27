@@ -28,10 +28,11 @@ func NewAgent() (*Agent, error) {
 	newAgent := Agent{}
 
 	config := AgentConfig{}
-	agentFlags := flag.NewFlagSet("Agent flags", flag.ExitOnError)
+	agentFlags := flag.NewFlagSet("Agent flags", flag.ContinueOnError)
 	agentFlags.StringVar(&config.serverAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
 	agentFlags.UintVar(&config.reportInterval, "r", 10, "report interval in seconds. default 10.")
 	agentFlags.UintVar(&config.pollInterval, "p", 2, "poll interval in seconds. default 2.")
+
 	agentFlags.Parse(os.Args[1:])
 	config.ParseEnvVariable()
 	newAgent.config = &config
