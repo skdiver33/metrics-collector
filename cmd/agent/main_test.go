@@ -23,11 +23,10 @@ func TestAgent_SendMetrics(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			agent := &Agent{
-				metricStorage: tt.fields.metricStorage,
-				config:        AgentConfig{serverAddress: "localhost:8080", pollInterval: 2, reportInterval: 10},
+			agent, err := NewAgent()
+			if err != nil {
+				t.Errorf("error init agent")
 			}
-			agent.metricStorage.InitializeStorage()
 			agent.UpdateMetrics()
 			if err := agent.SendMetrics(); (err != nil) != tt.wantErr {
 				t.Errorf("Agent.SendMetrics() error = %v, wantErr %v", err, tt.wantErr)
