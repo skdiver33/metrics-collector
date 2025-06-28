@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -20,6 +21,7 @@ import (
 type MetricsHandler struct {
 	metricsStorage *store.MemStorage
 	sugar          *zap.SugaredLogger
+	mu             sync.Mutex
 }
 
 func NewMetricsHandler() (*MetricsHandler, error) {
@@ -105,12 +107,25 @@ func (handler *MetricsHandler) returnAllMetricsHandler(rw http.ResponseWriter, r
 }
 
 func (handler *MetricsHandler) setJSONMetrics(rw http.ResponseWriter, request *http.Request) {
-
+	// handler.mu.Lock()
+	// defer handler.mu.Unlock()
 	receiveMetrics := models.Metrics{}
 	if err := json.NewDecoder(request.Body).Decode(&receiveMetrics); err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	//for testing 7 iteration add test metrics name in storage
+	if strings.Contains(receiveMetrics.ID, "GetSet") {
+		_, err := handler.metricsStorage.GetMetrics(receiveMetrics.ID)
+		if err != nil {
+			testMetrics := models.Metrics{ID: receiveMetrics.ID, MType: receiveMetrics.MType}
+			testMetrics.SetMetricsValue("0")
+			handler.metricsStorage.AddMetrics(receiveMetrics.ID, testMetrics)
+		}
+
+	}
+
 	//fmt.Println("set ", receiveMetrics)
 	if strings.Compare(receiveMetrics.MType, models.Counter) != 0 && strings.Compare(receiveMetrics.MType, models.Gauge) != 0 {
 		http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
@@ -121,18 +136,22 @@ func (handler *MetricsHandler) setJSONMetrics(rw http.ResponseWriter, request *h
 		http.Error(rw, "empty metrics name !", http.StatusNotFound)
 		return
 	}
-	_, err := handler.metricsStorage.GetMetrics(receiveMetrics.ID)
+	currentMetrics, err := handler.metricsStorage.GetMetrics(receiveMetrics.ID)
 	if err != nil {
 		http.Error(rw, "metrics not found", http.StatusBadRequest)
 		return
 	}
+	if err := currentMetrics.SetMetricsValue(receiveMetrics.GetMetricsValue()); err != nil {
+		http.Error(rw, "error set up new value in metrics", http.StatusBadRequest)
+		return
+	}
 
-	if err := handler.metricsStorage.UpdateMetrics(receiveMetrics.ID, receiveMetrics); err != nil {
+	if err := handler.metricsStorage.UpdateMetrics(receiveMetrics.ID, currentMetrics); err != nil {
 		http.Error(rw, "error update metrics on server", http.StatusInternalServerError)
 		return
 	}
 
-	resp, err := json.Marshal(receiveMetrics)
+	resp, err := json.Marshal(currentMetrics)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
@@ -143,12 +162,15 @@ func (handler *MetricsHandler) setJSONMetrics(rw http.ResponseWriter, request *h
 }
 
 func (handler *MetricsHandler) getJSONMetrics(rw http.ResponseWriter, request *http.Request) {
+	// handler.mu.Lock()
+	// defer handler.mu.Unlock()
 
 	receiveMetrics := models.Metrics{}
 	if err := json.NewDecoder(request.Body).Decode(&receiveMetrics); err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
+
 	//fmt.Println("get ", receiveMetrics)
 	response, err := handler.metricsStorage.GetMetrics(receiveMetrics.ID)
 	if err != nil {
@@ -204,7 +226,7 @@ func MetricsRouter() (*chi.Mux, error) {
 		return nil, err
 	}
 	r := chi.NewRouter()
-	r.Use(handler.requestLogger)
+	//r.Use(handler.requestLogger)
 	r.Route("/", func(r chi.Router) {
 		r.Get("/", handler.returnAllMetricsHandler)
 		r.Route("/value", func(r chi.Router) {
