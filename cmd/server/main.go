@@ -12,7 +12,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/v5"
 	serverLoggerTypes "github.com/skdiver33/metrics-collector/internal/server"
 	"github.com/skdiver33/metrics-collector/internal/store"
 	"github.com/skdiver33/metrics-collector/models"
@@ -45,7 +45,7 @@ func NewMetricsHandler() (*MetricsHandler, error) {
 
 func (handler *MetricsHandler) receiveMetricsHandler(rw http.ResponseWriter, request *http.Request) {
 
-	//fmt.Print("Receive new metrics not JSON")
+	fmt.Print("Receive new metrics not JSON")
 	metricsType := chi.URLParam(request, "metricsType")
 	metricsName := chi.URLParam(request, "metricsName")
 	metricsValue := chi.URLParam(request, "metricsValue")
@@ -255,6 +255,7 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
+
 	if err := http.ListenAndServe(*startAdress, chiRouter); err != nil {
 		panic(err.Error())
 	}

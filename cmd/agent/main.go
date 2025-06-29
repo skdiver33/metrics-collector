@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"reflect"
@@ -28,7 +29,7 @@ func NewAgent() (*Agent, error) {
 	newAgent := Agent{}
 
 	config := AgentConfig{}
-	agentFlags := flag.NewFlagSet("Agent flags", flag.ContinueOnError)
+	agentFlags := flag.NewFlagSet("Agent flags", flag.PanicOnError)
 	agentFlags.StringVar(&config.serverAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
 	agentFlags.UintVar(&config.reportInterval, "r", 10, "report interval in seconds. default 10.")
 	agentFlags.UintVar(&config.pollInterval, "p", 2, "poll interval in seconds. default 2.")
@@ -192,7 +193,7 @@ func (agent *Agent) SendJSONMetrics() error {
 	}
 
 	tr := &http.Transport{
-		ResponseHeaderTimeout: 10 * time.Second,
+		//ResponseHeaderTimeout: 10 * time.Second,
 		// MaxIdleConns:          1,
 		// IdleConnTimeout: 30 * time.Second,
 	}
@@ -216,6 +217,7 @@ func (agent *Agent) SendJSONMetrics() error {
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Close = true
+
 		//time.Sleep(1 * time.Second)
 		response, err := client.Do(req)
 
@@ -248,6 +250,13 @@ func (agent *Agent) MainLoop() error {
 	count := 0
 
 	for {
+		if isServerAvailabble() {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	for {
 		count++
 
 		time.Sleep(time.Duration(min) * time.Second)
@@ -263,6 +272,17 @@ func (agent *Agent) MainLoop() error {
 		}
 	}
 
+}
+
+func isServerAvailabble() bool {
+
+	conn, err := net.Dial("tcp", "localhost:8080")
+	if err != nil {
+		conn.Close()
+		return false
+	}
+	conn.Close()
+	return true
 }
 
 func main() {
