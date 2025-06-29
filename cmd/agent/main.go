@@ -253,7 +253,7 @@ func (agent *Agent) MainLoop() error {
 		if isServerAvailabble() {
 			break
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	for {
