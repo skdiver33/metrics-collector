@@ -25,7 +25,11 @@ func testRequest(t *testing.T, ts *httptest.Server, method, path string) (*http.
 }
 
 func TestRouter(t *testing.T) {
-	ts := httptest.NewServer(MetricRouter())
+	router, err := MetricsRouter()
+	if err != nil {
+		t.Error("error inialize chi router")
+	}
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 	var testTable = []struct {
 		url    string
