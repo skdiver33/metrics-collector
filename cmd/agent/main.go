@@ -250,7 +250,7 @@ func (agent *Agent) MainLoop() error {
 	count := 0
 
 	for {
-		if isServerAvailabble() {
+		if val := isServerAvailabble(); val {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -278,7 +278,7 @@ func isServerAvailabble() bool {
 
 	conn, err := net.Dial("tcp", "localhost:8080")
 	if err != nil {
-		conn.Close()
+		//conn.Close()
 		return false
 	}
 	conn.Close()
