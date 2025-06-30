@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -157,9 +158,7 @@ func (agent *Agent) SendMetrics() error {
 		return err
 	}
 
-	tr := &http.Transport{
-		//ResponseHeaderTimeout: 10 * time.Second,
-	}
+	tr := &http.Transport{}
 	client := &http.Client{Transport: tr}
 
 	for _, name := range allMMetricsName {
@@ -185,18 +184,12 @@ func (agent *Agent) SendMetrics() error {
 	return nil
 }
 
-func (agent *Agent) SendJSONMetrics() error {
-
+func (agent *Agent) SendJSONMetrics(useCompression bool) error {
 	allMMetricsName, err := agent.metricStorage.GetAllMetricsNames()
 	if err != nil {
 		return err
 	}
-
-	tr := &http.Transport{
-		//ResponseHeaderTimeout: 10 * time.Second,
-		// MaxIdleConns:          1,
-		// IdleConnTimeout: 30 * time.Second,
-	}
+	tr := &http.Transport{}
 	client := &http.Client{Transport: tr}
 	for _, name := range allMMetricsName {
 		currentMetrics, erro := agent.metricStorage.GetMetrics(name)
@@ -208,22 +201,33 @@ func (agent *Agent) SendJSONMetrics() error {
 		if err != nil {
 			return errors.New("error! json marshaling")
 		}
-		//fmt.Println("Send data ", string(buf))
-		requestBody := bytes.NewBuffer(buf)
 
-		req, err := http.NewRequest(http.MethodPost, "http://"+agent.config.serverAddress+"/update/", requestBody)
+		var requestBody bytes.Buffer
+
+		if useCompression {
+			zw := gzip.NewWriter(&requestBody)
+			if _, err := zw.Write(buf); err != nil {
+				return err
+			}
+			if err := zw.Close(); err != nil {
+				return nil
+			}
+		} else {
+			requestBody.Write(buf)
+		}
+		fmt.Println("Send ", requestBody)
+		req, err := http.NewRequest(http.MethodPost, "http://"+agent.config.serverAddress+"/update/", &requestBody)
 		if err != nil {
 			return errors.New("error! create request")
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.Close = true
-
-		//time.Sleep(1 * time.Second)
+		if useCompression {
+			req.Header.Set("Content-Encoding", "gzip")
+		}
 		response, err := client.Do(req)
 
 		if err != nil {
 			fmt.Printf("Client error send data %s \n", err.Error())
-			//continue
 			return err
 		}
 		defer response.Body.Close()
@@ -243,22 +247,18 @@ func (agent *Agent) SendJSONMetrics() error {
 }
 
 func (agent *Agent) MainLoop() error {
-
 	min := min(agent.config.reportInterval, agent.config.pollInterval)
 	reportPeriod := agent.config.reportInterval / min
 	pollPeriod := agent.config.pollInterval / min
 	count := 0
-
 	for {
 		if val := agent.isServerAvailabble(); val {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-
 	for {
 		count++
-
 		time.Sleep(time.Duration(min) * time.Second)
 		if count%int(pollPeriod) == 0 {
 			if err := agent.UpdateMetrics(); err != nil {
@@ -266,7 +266,7 @@ func (agent *Agent) MainLoop() error {
 			}
 		}
 		if count%int(reportPeriod) == 0 {
-			if err := agent.SendJSONMetrics(); err != nil {
+			if err := agent.SendJSONMetrics(true); err != nil {
 				return err
 			}
 		}
@@ -275,10 +275,8 @@ func (agent *Agent) MainLoop() error {
 }
 
 func (agent *Agent) isServerAvailabble() bool {
-
 	conn, err := net.Dial("tcp", agent.config.serverAddress)
 	if err != nil {
-		//conn.Close()
 		return false
 	}
 	conn.Close()
@@ -296,33 +294,3 @@ func main() {
 		panic(err.Error())
 	}
 }
-
-// client := resty.New()
-// 	for _, name := range allMMetricsName {
-// 		currentMetrics, erro := agent.metricStorage.GetMetrics(name)
-// 		if erro != nil {
-// 			fmt.Print(erro.Error())
-// 			return erro
-// 		}
-// 		//time.Sleep(100 * time.Millisecond)
-// 		result := models.Metrics{}
-// 		fmt.Println("send metrics  ", currentMetrics)
-// 		var (
-// 			resp *resty.Response
-// 			err  error
-// 		)
-// 		resp, err = client.R().EnableTrace().
-// 			SetHeader("Content-Type", "application/json").
-// 			SetBody(currentMetrics).
-// 			SetResult(&result). // or SetResult(&AuthSuccess{}).
-// 			Post("http://localhost:8080/update/")
-
-// 		client.R().TraceInfo()
-// 		fmt.Println("post resp  ", resp, "   ", err)
-// 		if err != nil {
-// 			if err == io.EOF {
-// 				continue
-// 			}
-// 			fmt.Println(err.Error())
-// 			return err
-// 		}
