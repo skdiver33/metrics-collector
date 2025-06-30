@@ -266,7 +266,7 @@ func (agent *Agent) MainLoop() error {
 			}
 		}
 		if count%int(reportPeriod) == 0 {
-			if err := agent.SendJSONMetrics(true); err != nil {
+			if err := agent.SendJSONMetrics(false); err != nil {
 				return err
 			}
 		}
@@ -287,7 +287,6 @@ func main() {
 	agent, err := NewAgent()
 	if err != nil {
 		panic(err.Error())
-
 	}
 
 	if err := agent.MainLoop(); err != nil {

@@ -98,42 +98,19 @@ func (handler *MetricsHandler) returnAllMetricsHandler(rw http.ResponseWriter, r
 		answer = fmt.Sprintf("<p>%s %s %s %s </p>\n", answer, name, metrics.MType, metrics.GetMetricsValue())
 	}
 	answer += "</body>\n</html>"
+
 	rw.Header().Set("Content-type", "text/html")
-
-	num, _ := rw.Write([]byte(answer))
+	rw.Write([]byte(answer))
 	rw.WriteHeader(http.StatusOK)
-	fmt.Println(num)
-
 }
 
 func (handler *MetricsHandler) setJSONMetrics(rw http.ResponseWriter, request *http.Request) {
-
-	// var bodyBuffer bytes.Buffer
-
-	// if strings.Contains(request.Header.Get("Content-Encoding"), "gzip") {
-	// 	gz, err := gzip.NewReader(request.Body)
-	// 	if err != nil {
-	// 		fmt.Println("error create gzip")
-	// 		return
-	// 	}
-	// 	decompressBody, err := io.ReadAll(gz)
-	// 	if err != nil {
-	// 		fmt.Println("error decompress body")
-	// 		return
-	// 	}
-	// 	gz.Close()
-	// 	bodyBuffer.Write(decompressBody)
-	// } else {
-	// 	bodyBuffer.ReadFrom(request.Body)
-	// }
 
 	receiveMetrics := models.Metrics{}
 	if err := json.NewDecoder(request.Body).Decode(&receiveMetrics); err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	fmt.Println("Set Receive ", receiveMetrics)
 
 	//for testing 7 iteration add test metrics name in storage
 	if strings.Contains(receiveMetrics.ID, "GetSet") {
@@ -143,7 +120,6 @@ func (handler *MetricsHandler) setJSONMetrics(rw http.ResponseWriter, request *h
 			testMetrics.SetMetricsValue("0")
 			handler.metricsStorage.AddMetrics(receiveMetrics.ID, testMetrics)
 		}
-
 	}
 
 	if strings.Compare(receiveMetrics.MType, models.Counter) != 0 && strings.Compare(receiveMetrics.MType, models.Gauge) != 0 {
@@ -155,6 +131,7 @@ func (handler *MetricsHandler) setJSONMetrics(rw http.ResponseWriter, request *h
 		http.Error(rw, "empty metrics name !", http.StatusNotFound)
 		return
 	}
+
 	currentMetrics, err := handler.metricsStorage.GetMetrics(receiveMetrics.ID)
 	if err != nil {
 		http.Error(rw, "metrics not found", http.StatusBadRequest)
@@ -164,7 +141,6 @@ func (handler *MetricsHandler) setJSONMetrics(rw http.ResponseWriter, request *h
 		http.Error(rw, "error set up new value in metrics", http.StatusBadRequest)
 		return
 	}
-
 	if err := handler.metricsStorage.UpdateMetrics(receiveMetrics.ID, currentMetrics); err != nil {
 		http.Error(rw, "error update metrics on server", http.StatusInternalServerError)
 		return
@@ -175,6 +151,7 @@ func (handler *MetricsHandler) setJSONMetrics(rw http.ResponseWriter, request *h
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
 	rw.Header().Set("Content-Type", "application/json")
 	rw.Write(resp)
 	rw.WriteHeader(http.StatusOK)
@@ -182,32 +159,11 @@ func (handler *MetricsHandler) setJSONMetrics(rw http.ResponseWriter, request *h
 
 func (handler *MetricsHandler) getJSONMetrics(rw http.ResponseWriter, request *http.Request) {
 
-	// var bodyBuffer bytes.Buffer
-
-	// if strings.Contains(request.Header.Get("Content-Encoding"), "gzip") {
-	// 	gz, err := gzip.NewReader(request.Body)
-	// 	if err != nil {
-	// 		fmt.Println("error create gzip")
-	// 		return
-	// 	}
-	// 	decompressBody, err := io.ReadAll(gz)
-	// 	if err != nil {
-	// 		fmt.Println("error decompress body")
-	// 		return
-	// 	}
-	// 	gz.Close()
-	// 	bodyBuffer.Write(decompressBody)
-	// } else {
-	// 	bodyBuffer.ReadFrom(request.Body)
-	// }
-
 	receiveMetrics := models.Metrics{}
 	if err := json.NewDecoder(request.Body).Decode(&receiveMetrics); err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	//fmt.Println("Get Receive ", receiveMetrics)
 
 	response, err := handler.metricsStorage.GetMetrics(receiveMetrics.ID)
 	if err != nil {
@@ -220,8 +176,8 @@ func (handler *MetricsHandler) getJSONMetrics(rw http.ResponseWriter, request *h
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	rw.Header().Set("Content-Type", "application/json")
 
+	rw.Header().Set("Content-Type", "application/json")
 	rw.Write(resp)
 	rw.WriteHeader(http.StatusOK)
 }
@@ -233,8 +189,9 @@ func (handler *MetricsHandler) metricsInfoHandler(rw http.ResponseWriter, reques
 		http.Error(rw, "error get metrics from storage", http.StatusNotFound)
 		return
 	}
+
 	rw.Header().Set("Content-type", "text/plain")
-	//rw.WriteHeader(http.StatusOK)
+	rw.WriteHeader(http.StatusOK)
 	rw.Write([]byte(metrics.GetMetricsValue()))
 }
 
@@ -246,6 +203,7 @@ func (handler *MetricsHandler) requestLogger(h http.Handler) http.Handler {
 		lw := serverHandlers.LoggingResponseWriter{ResponseWriter: w, ResponseData: responseData}
 
 		h.ServeHTTP(&lw, req)
+
 		duration := time.Since(start)
 		handler.sugar.Infoln(
 			"uri", req.RequestURI,
@@ -257,26 +215,6 @@ func (handler *MetricsHandler) requestLogger(h http.Handler) http.Handler {
 	}
 	return http.HandlerFunc(logerFunc)
 }
-
-// func (handler *MetricsHandler) compressHandler(h http.Handler) http.Handler {
-// 	compressFunc := func(w http.ResponseWriter, req *http.Request) {
-// 		h.ServeHTTP(w, req)
-// 		if  strings.Contains(req.Header.Get("Accept-encoding"),"gzip"){
-// 			gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
-// 			if err != nil {
-// 				io.WriteString(w, err.Error())
-// 				return
-// 			}
-// 			defer gz.Close()
-
-// 			w.Header().Set("Content-Encoding", "gzip")
-// 		// передаём обработчику страницы переменную типа gzipWriter для вывода данных
-// 			next.ServeHTTP(gzipWriter{ResponseWriter: w, Writer: gz}, r)
-// 		}
-
-// 	}
-// 	return http.HandlerFunc(compressFunc)
-// }
 
 func MetricsRouter() (*chi.Mux, error) {
 	handler, err := NewMetricsHandler()
