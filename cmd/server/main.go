@@ -16,33 +16,6 @@ import (
 	"github.com/skdiver33/metrics-collector/models"
 )
 
-// func MetricsRouter() (*chi.Mux, error) {
-// 	newMetricsStorage, err := store.NewMemStorage()
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	handler, err := serverHandlers.NewMetricsHandler(newMetricsStorage)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	r := chi.NewRouter()
-// 	r.Use(handler.RequestLogger)
-// 	r.Use(handler.GzipHandle)
-// 	r.Route("/", func(r chi.Router) {
-// 		r.Get("/", handler.GetAllMetrics)
-// 		r.Route("/value", func(r chi.Router) {
-// 			r.Post("/", handler.GetJSONMetrics)
-// 			r.Get("/{metricsType}/{metricsName}", handler.GetMetrics)
-// 		})
-// 		r.Route("/update", func(r chi.Router) {
-// 			r.Post("/", handler.SetJSONMetrics)
-// 			r.Post("/{metricsType}/{metricsName}/{metricsValue}", handler.SetMetrics)
-// 		})
-// 	})
-// 	return r, nil
-// }
-
 type ServerConfig struct {
 	listenAddress   string
 	storeInterval   uint
@@ -53,16 +26,11 @@ type ServerConfig struct {
 func newServerConfig() *ServerConfig {
 
 	serverConfig := ServerConfig{}
-	serverFlags := flag.NewFlagSet("Server config flags", flag.PanicOnError)
+	serverFlags := flag.NewFlagSet("Server config flags", flag.ContinueOnError)
 	serverFlags.StringVar(&serverConfig.listenAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
 	serverFlags.UintVar(&serverConfig.storeInterval, "i", 10, "store interval in seconds. default 300.")
 	serverFlags.StringVar(&serverConfig.storageDumpPath, "f", "/tmp/storage_dump.json", "path to file for storage dump")
 	serverFlags.BoolVar(&serverConfig.isDumpRestore, "r", false, "use dump for restore storage state")
-
-	// serverConfig.listenAddress = *serverFlags.String("a", "localhost:8080", "adress for start server")
-	// serverConfig.storeInterval = *serverFlags.Uint("i", 300, "store interval, default 300 seconds")
-	// serverConfig.storageDumpPath = *serverFlags.String("f", "./storage_dump.json", "path to file for storage dump")
-	// serverConfig.isDumpRestore = *serverFlags.Bool("r", false, "use dump for restore storage state")
 	serverFlags.Parse(os.Args[1:])
 
 	envServerAddr, ok := os.LookupEnv("ADDRESS")
@@ -128,7 +96,7 @@ func NewServer() (*Server, error) {
 		return nil, err
 	}
 	newRouter := chi.NewRouter()
-	//newRouter.Use(newHandler.RequestLogger)
+	newRouter.Use(newHandler.RequestLogger)
 	newRouter.Use(newHandler.GzipHandle)
 	newRouter.Route("/", func(r chi.Router) {
 		r.Get("/", newHandler.GetAllMetrics)

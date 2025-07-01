@@ -24,7 +24,6 @@ func NewMemStorage() (*MemStorage, error) {
 }
 
 type StorageInterface interface {
-	//	Initialize() error
 	AddMetrics(metricsName string, metricsValue models.Metrics) error
 	UpdateMetrics(metricsName string, metricsValue models.Metrics) error
 	GetMetrics(metricsName string) (models.Metrics, error)
