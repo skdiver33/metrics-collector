@@ -9,26 +9,26 @@ import (
 )
 
 type MemStorage struct {
-	storage map[string]models.Metrics
-	mu      *sync.Mutex
+	Storage map[string]models.Metrics
+	Mutex   *sync.Mutex
 }
 
 func NewMemStorage() (*MemStorage, error) {
 	newStorage := MemStorage{}
-	newStorage.mu = &sync.Mutex{}
-	newStorage.storage = make(map[string]models.Metrics)
+	newStorage.Mutex = &sync.Mutex{}
+	newStorage.Storage = make(map[string]models.Metrics)
 	if err := newStorage.Initialize(); err != nil {
 		return nil, err
 	}
 	return &newStorage, nil
 }
 
-type Storage interface {
-	Initialize() error
+type StorageInterface interface {
+	//	Initialize() error
 	AddMetrics(metricsName string, metricsValue models.Metrics) error
 	UpdateMetrics(metricsName string, metricsValue models.Metrics) error
 	GetMetrics(metricsName string) (models.Metrics, error)
-	GetAllMetricsNames() []string
+	GetAllMetricsNames() ([]string, error)
 }
 
 func (inMemmory *MemStorage) Initialize() error {
@@ -52,36 +52,34 @@ func (inMemmory *MemStorage) Initialize() error {
 }
 
 func (inMemmory *MemStorage) AddMetrics(metricsName string, metricsValue models.Metrics) error {
-	inMemmory.mu.Lock()
-	defer inMemmory.mu.Unlock()
-	inMemmory.storage[metricsName] = metricsValue
+	inMemmory.Mutex.Lock()
+	defer inMemmory.Mutex.Unlock()
+	inMemmory.Storage[metricsName] = metricsValue
 	return nil
-
 }
 
 func (inMemmory *MemStorage) GetMetrics(metricsName string) (models.Metrics, error) {
-	inMemmory.mu.Lock()
-	defer inMemmory.mu.Unlock()
-	metrics, ok := inMemmory.storage[metricsName]
+	inMemmory.Mutex.Lock()
+	defer inMemmory.Mutex.Unlock()
+	metrics, ok := inMemmory.Storage[metricsName]
 	if !ok {
 		return metrics, errors.New("metrics with name not found")
 	}
 	return metrics, nil
-
 }
 
 func (inMemmory *MemStorage) UpdateMetrics(metricsName string, metricsValue models.Metrics) error {
-	inMemmory.mu.Lock()
-	defer inMemmory.mu.Unlock()
-	inMemmory.storage[metricsName] = metricsValue
+	inMemmory.Mutex.Lock()
+	defer inMemmory.Mutex.Unlock()
+	inMemmory.Storage[metricsName] = metricsValue
 	return nil
 }
 
 func (inMemmory *MemStorage) GetAllMetricsNames() ([]string, error) {
-	inMemmory.mu.Lock()
-	defer inMemmory.mu.Unlock()
+	inMemmory.Mutex.Lock()
+	defer inMemmory.Mutex.Unlock()
 	allMetricsNames := make([]string, 0)
-	for metricsName := range inMemmory.storage {
+	for metricsName := range inMemmory.Storage {
 		allMetricsNames = append(allMetricsNames, metricsName)
 	}
 	if len(allMetricsNames) == 0 {

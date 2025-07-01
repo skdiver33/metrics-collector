@@ -7,7 +7,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"math/rand"
 	"net"
 	"net/http"
@@ -215,7 +214,6 @@ func (agent *Agent) SendJSONMetrics(useCompression bool) error {
 		} else {
 			requestBody.Write(buf)
 		}
-		fmt.Println("Send ", requestBody)
 		req, err := http.NewRequest(http.MethodPost, "http://"+agent.config.serverAddress+"/update/", &requestBody)
 		if err != nil {
 			return errors.New("error! create request")
@@ -231,12 +229,6 @@ func (agent *Agent) SendJSONMetrics(useCompression bool) error {
 			return err
 		}
 		defer response.Body.Close()
-
-		answer, err := io.ReadAll(response.Body)
-		if err != nil {
-			fmt.Printf("client error read body %s", err.Error())
-		}
-		fmt.Println(string(answer))
 
 		if response.StatusCode != http.StatusOK {
 			return errors.New("error update metrics on server!!! Response code not 200")

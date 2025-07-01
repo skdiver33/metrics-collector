@@ -2,258 +2,193 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
-	"time"
+	"strconv"
 
-	"go.uber.org/zap"
-
-	"github.com/go-chi/chi/v5"
+	chi "github.com/go-chi/chi/v5"
 	serverHandlers "github.com/skdiver33/metrics-collector/internal/server"
 	"github.com/skdiver33/metrics-collector/internal/store"
 	"github.com/skdiver33/metrics-collector/models"
 )
 
-type MetricsHandler struct {
-	metricsStorage *store.MemStorage
-	sugar          *zap.SugaredLogger
+// func MetricsRouter() (*chi.Mux, error) {
+// 	newMetricsStorage, err := store.NewMemStorage()
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	handler, err := serverHandlers.NewMetricsHandler(newMetricsStorage)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	r := chi.NewRouter()
+// 	r.Use(handler.RequestLogger)
+// 	r.Use(handler.GzipHandle)
+// 	r.Route("/", func(r chi.Router) {
+// 		r.Get("/", handler.GetAllMetrics)
+// 		r.Route("/value", func(r chi.Router) {
+// 			r.Post("/", handler.GetJSONMetrics)
+// 			r.Get("/{metricsType}/{metricsName}", handler.GetMetrics)
+// 		})
+// 		r.Route("/update", func(r chi.Router) {
+// 			r.Post("/", handler.SetJSONMetrics)
+// 			r.Post("/{metricsType}/{metricsName}/{metricsValue}", handler.SetMetrics)
+// 		})
+// 	})
+// 	return r, nil
+// }
+
+type ServerConfig struct {
+	listenAddress   string
+	storeInterval   uint
+	storageDumpPath string
+	isDumpRestore   bool
 }
 
-func NewMetricsHandler() (*MetricsHandler, error) {
-	newHandler := MetricsHandler{}
+func newServerConfig() *ServerConfig {
 
-	newMetricsStorage, err := store.NewMemStorage()
+	serverConfig := ServerConfig{}
+	serverFlags := flag.NewFlagSet("Server config flags", flag.PanicOnError)
+	serverFlags.StringVar(&serverConfig.listenAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
+	serverFlags.UintVar(&serverConfig.storeInterval, "i", 10, "store interval in seconds. default 300.")
+	serverFlags.StringVar(&serverConfig.storageDumpPath, "f", "/tmp/storage_dump.json", "path to file for storage dump")
+	serverFlags.BoolVar(&serverConfig.isDumpRestore, "r", false, "use dump for restore storage state")
+
+	// serverConfig.listenAddress = *serverFlags.String("a", "localhost:8080", "adress for start server")
+	// serverConfig.storeInterval = *serverFlags.Uint("i", 300, "store interval, default 300 seconds")
+	// serverConfig.storageDumpPath = *serverFlags.String("f", "./storage_dump.json", "path to file for storage dump")
+	// serverConfig.isDumpRestore = *serverFlags.Bool("r", false, "use dump for restore storage state")
+	serverFlags.Parse(os.Args[1:])
+
+	envServerAddr, ok := os.LookupEnv("ADDRESS")
+	if ok {
+		serverConfig.listenAddress = envServerAddr
+	}
+
+	envStoreINterval, ok := os.LookupEnv("STORE_INTERVAL")
+	if ok {
+		interval, err := strconv.ParseUint(envStoreINterval, 10, 32)
+		if err != nil {
+			panic("can`t convert STORE_INTERVAL env variable")
+		}
+		serverConfig.storeInterval = uint(interval)
+	}
+
+	envFileStoragePAth, ok := os.LookupEnv("FILE_STORAGE_PATH")
+	if ok {
+		serverConfig.storageDumpPath = envFileStoragePAth
+	}
+
+	envIsRestoreFlag, ok := os.LookupEnv("RESTORE")
+	if ok {
+		isRestore, err := strconv.ParseBool(envIsRestoreFlag)
+		if err != nil {
+			panic("can`t convert RESTORE env variable")
+		}
+		serverConfig.isDumpRestore = isRestore
+	}
+
+	return &serverConfig
+}
+
+type Server struct {
+	config  *ServerConfig
+	storage store.StorageInterface
+	router  http.Handler
+}
+
+func NewServer() (*Server, error) {
+	newServer := Server{}
+
+	serverConfig := newServerConfig()
+	newServer.config = serverConfig
+
+	newStorage, err := store.NewMemStorage()
 	if err != nil {
 		return nil, err
 	}
-	newHandler.metricsStorage = newMetricsStorage
+	newServer.storage = newStorage
 
-	logger, err := zap.NewDevelopment()
-	if err != nil {
-		panic(err)
-	}
-	defer logger.Sync()
-	newHandler.sugar = logger.Sugar()
-
-	return &newHandler, nil
-}
-
-func (handler *MetricsHandler) receiveMetricsHandler(rw http.ResponseWriter, request *http.Request) {
-
-	fmt.Print("Receive new metrics not JSON")
-	metricsType := chi.URLParam(request, "metricsType")
-	metricsName := chi.URLParam(request, "metricsName")
-	metricsValue := chi.URLParam(request, "metricsValue")
-
-	//for testing 3 iteration add test metrics name in storage
-	if strings.Contains(metricsName, "testSetGet") {
-		_, err := handler.metricsStorage.GetMetrics(metricsName)
-		if err != nil {
-			testMetrics := models.Metrics{ID: metricsName, MType: metricsType}
-			testMetrics.SetMetricsValue("0")
-			handler.metricsStorage.AddMetrics(metricsName, testMetrics)
-		}
-
+	if serverConfig.isDumpRestore {
+		newServer.readStorageDump()
 	}
 
-	if strings.Compare(metricsType, models.Counter) != 0 && strings.Compare(metricsType, models.Gauge) != 0 {
-		http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
-		return
-	}
-
-	if metricsName == "" {
-		http.Error(rw, "Not all metrics data defined!", http.StatusNotFound)
-		return
-	}
-	currentMetrics, err := handler.metricsStorage.GetMetrics(metricsName)
-	if err != nil {
-		http.Error(rw, "metrics not found", http.StatusBadRequest)
-		return
-	}
-	if err := currentMetrics.SetMetricsValue(metricsValue); err != nil {
-		http.Error(rw, "error set up new value in metrics", http.StatusBadRequest)
-		return
-	}
-	if err := handler.metricsStorage.UpdateMetrics(metricsName, currentMetrics); err != nil {
-		http.Error(rw, "error update metrics on server", http.StatusInternalServerError)
-		return
-	}
-	rw.Header().Set("Content-type", "text/plain")
-	rw.WriteHeader(http.StatusOK)
-
-}
-
-func (handler *MetricsHandler) returnAllMetricsHandler(rw http.ResponseWriter, request *http.Request) {
-	answer := "<!DOCTYPE html>\n<html>\n<head>\n<title> Known metrics </title>\n</head>\n<body\n>"
-	metricsNames, err := handler.metricsStorage.GetAllMetricsNames()
-	if err != nil {
-		http.Error(rw, "error get metrics name from storage", http.StatusInternalServerError)
-		return
-	}
-	for _, name := range metricsNames {
-		metrics, _ := handler.metricsStorage.GetMetrics(name)
-		answer = fmt.Sprintf("<p>%s %s %s %s </p>\n", answer, name, metrics.MType, metrics.GetMetricsValue())
-	}
-	answer += "</body>\n</html>"
-
-	rw.Header().Set("Content-type", "text/html")
-	rw.Write([]byte(answer))
-	rw.WriteHeader(http.StatusOK)
-}
-
-func (handler *MetricsHandler) setJSONMetrics(rw http.ResponseWriter, request *http.Request) {
-
-	receiveMetrics := models.Metrics{}
-	if err := json.NewDecoder(request.Body).Decode(&receiveMetrics); err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	//for testing 7 iteration add test metrics name in storage
-	if strings.Contains(receiveMetrics.ID, "GetSet") {
-		_, err := handler.metricsStorage.GetMetrics(receiveMetrics.ID)
-		if err != nil {
-			testMetrics := models.Metrics{ID: receiveMetrics.ID, MType: receiveMetrics.MType}
-			testMetrics.SetMetricsValue("0")
-			handler.metricsStorage.AddMetrics(receiveMetrics.ID, testMetrics)
-		}
-	}
-
-	if strings.Compare(receiveMetrics.MType, models.Counter) != 0 && strings.Compare(receiveMetrics.MType, models.Gauge) != 0 {
-		http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
-		return
-	}
-
-	if receiveMetrics.ID == "" {
-		http.Error(rw, "empty metrics name !", http.StatusNotFound)
-		return
-	}
-
-	currentMetrics, err := handler.metricsStorage.GetMetrics(receiveMetrics.ID)
-	if err != nil {
-		http.Error(rw, "metrics not found", http.StatusBadRequest)
-		return
-	}
-	if err := currentMetrics.SetMetricsValue(receiveMetrics.GetMetricsValue()); err != nil {
-		http.Error(rw, "error set up new value in metrics", http.StatusBadRequest)
-		return
-	}
-	if err := handler.metricsStorage.UpdateMetrics(receiveMetrics.ID, currentMetrics); err != nil {
-		http.Error(rw, "error update metrics on server", http.StatusInternalServerError)
-		return
-	}
-
-	resp, err := json.Marshal(currentMetrics)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	rw.Header().Set("Content-Type", "application/json")
-	rw.Write(resp)
-	rw.WriteHeader(http.StatusOK)
-}
-
-func (handler *MetricsHandler) getJSONMetrics(rw http.ResponseWriter, request *http.Request) {
-
-	receiveMetrics := models.Metrics{}
-	if err := json.NewDecoder(request.Body).Decode(&receiveMetrics); err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	response, err := handler.metricsStorage.GetMetrics(receiveMetrics.ID)
-	if err != nil {
-		http.Error(rw, "error get metrics from storage", http.StatusNotFound)
-		return
-	}
-
-	resp, err := json.Marshal(response)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	rw.Header().Set("Content-Type", "application/json")
-	rw.Write(resp)
-	rw.WriteHeader(http.StatusOK)
-}
-
-func (handler *MetricsHandler) metricsInfoHandler(rw http.ResponseWriter, request *http.Request) {
-	metricsName := chi.URLParam(request, "metricsName")
-	metrics, err := handler.metricsStorage.GetMetrics(metricsName)
-	if err != nil {
-		http.Error(rw, "error get metrics from storage", http.StatusNotFound)
-		return
-	}
-
-	rw.Header().Set("Content-type", "text/plain")
-	rw.WriteHeader(http.StatusOK)
-	rw.Write([]byte(metrics.GetMetricsValue()))
-}
-
-func (handler *MetricsHandler) requestLogger(h http.Handler) http.Handler {
-	logerFunc := func(w http.ResponseWriter, req *http.Request) {
-
-		start := time.Now()
-		responseData := &serverHandlers.ResponseData{Status: 0, Size: 0}
-		lw := serverHandlers.LoggingResponseWriter{ResponseWriter: w, ResponseData: responseData}
-
-		h.ServeHTTP(&lw, req)
-
-		duration := time.Since(start)
-		handler.sugar.Infoln(
-			"uri", req.RequestURI,
-			"method", req.Method,
-			"status", responseData.Status,
-			"duration", duration,
-			"size", responseData.Size,
-		)
-	}
-	return http.HandlerFunc(logerFunc)
-}
-
-func MetricsRouter() (*chi.Mux, error) {
-	handler, err := NewMetricsHandler()
+	newHandler, err := serverHandlers.NewMetricsHandler(newStorage)
 	if err != nil {
 		return nil, err
 	}
-	r := chi.NewRouter()
-	r.Use(handler.requestLogger)
-	r.Use(serverHandlers.GzipHandle)
-	r.Route("/", func(r chi.Router) {
-		r.Get("/", handler.returnAllMetricsHandler)
+	newRouter := chi.NewRouter()
+	//newRouter.Use(newHandler.RequestLogger)
+	//newRouter.Use(newHandler.GzipHandle)
+	newRouter.Route("/", func(r chi.Router) {
+		r.Get("/", newHandler.GetAllMetrics)
 		r.Route("/value", func(r chi.Router) {
-			r.Post("/", handler.getJSONMetrics)
-			r.Get("/{metricsType}/{metricsName}", handler.metricsInfoHandler)
+			r.Post("/", newHandler.GetJSONMetrics)
+			r.Get("/{metricsType}/{metricsName}", newHandler.GetMetrics)
 		})
 		r.Route("/update", func(r chi.Router) {
-			r.Post("/", handler.setJSONMetrics)
-			r.Post("/{metricsType}/{metricsName}/{metricsValue}", handler.receiveMetricsHandler)
+			r.Post("/", newHandler.SetJSONMetrics)
+			r.Post("/{metricsType}/{metricsName}/{metricsValue}", newHandler.SetMetrics)
 		})
 	})
-	return r, nil
+	newServer.router = newRouter
+	return &newServer, nil
+
+}
+
+func (server *Server) writeStorageDump() error {
+	storage, ok := server.storage.(*store.MemStorage)
+	if !ok {
+		return errors.New("error get storage from server")
+	}
+	storage.Mutex.Lock()
+	defer storage.Mutex.Unlock()
+	data, err := json.Marshal(storage.Storage)
+	if err != nil {
+		panic("error convert to JSON all metrics")
+	}
+	err = os.WriteFile(server.config.storageDumpPath, data, 0666)
+	if err != nil {
+		panic("error write data to file")
+	}
+	return nil
+}
+
+func (server *Server) readStorageDump() {
+	readData, err := os.ReadFile(server.config.storageDumpPath)
+	if err != nil {
+		panic("cannot read data from file")
+	}
+	readStorage := make(map[string]models.Metrics)
+	err = json.Unmarshal(readData, &readStorage)
+	if err != nil {
+		panic("cannot convert data from JSON")
+	}
+	for name, value := range readStorage {
+		server.storage.UpdateMetrics(name, value)
+	}
+
 }
 
 func main() {
 
-	serverFlags := flag.NewFlagSet("Start flags", flag.ExitOnError)
-	startAdress := serverFlags.String("a", "localhost:8080", "adress for start server")
-	serverFlags.Parse(os.Args[1:])
-	envServerAddr, ok := os.LookupEnv("ADDRESS")
-	if ok {
-		startAdress = &envServerAddr
-	}
-
-	chiRouter, err := MetricsRouter()
+	server, err := NewServer()
 	if err != nil {
 		panic(err.Error())
 	}
+	fmt.Println(server.storage)
+	// go func() {
+	// 	for {
+	// 		time.Sleep(time.Duration(server.config.storeInterval) * time.Second)
+	// 		server.writeStorageDump()
+	// 	}
+	// }()
 
-	if err := http.ListenAndServe(*startAdress, chiRouter); err != nil {
+	if err := http.ListenAndServe(server.config.listenAddress, server.router); err != nil {
 		panic(err.Error())
 	}
 
