@@ -3,35 +3,45 @@ package store
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/skdiver33/metrics-collector/models"
 )
 
 type MemStorage struct {
-	storage map[string]models.Metrics
+	Storage map[string]models.Metrics
+	Mutex   *sync.Mutex
 }
 
-type Storage interface {
-	InitializeStorage() error
+func NewMemStorage() (*MemStorage, error) {
+	newStorage := MemStorage{}
+	newStorage.Mutex = &sync.Mutex{}
+	newStorage.Storage = make(map[string]models.Metrics)
+	if err := newStorage.Initialize(); err != nil {
+		return nil, err
+	}
+	return &newStorage, nil
+}
+
+type StorageInterface interface {
 	AddMetrics(metricsName string, metricsValue models.Metrics) error
 	UpdateMetrics(metricsName string, metricsValue models.Metrics) error
 	GetMetrics(metricsName string) (models.Metrics, error)
-	GetAllMetricsNames() []string
+	GetAllMetricsNames() ([]string, error)
 }
 
-func (inMemmory *MemStorage) InitializeStorage() error {
-	inMemmory.storage = make(map[string]models.Metrics)
+func (inMemmory *MemStorage) Initialize() error {
 	for _, metricsName := range models.GaugeMetricsNames {
-		metrics := models.Metrics{}
-		metrics.MType = models.Gauge
+		val := 0.0
+		metrics := models.Metrics{ID: metricsName, MType: models.Gauge, Value: &val}
 		if err := inMemmory.AddMetrics(metricsName, metrics); err != nil {
 			fmt.Println("Error initialize storage.")
 			return err
 		}
 	}
 	for _, metricsName := range models.CounterMetricsNames {
-		metrics := models.Metrics{}
-		metrics.MType = models.Counter
+		delta := int64(0)
+		metrics := models.Metrics{ID: metricsName, MType: models.Counter, Delta: &delta}
 		if err := inMemmory.AddMetrics(metricsName, metrics); err != nil {
 			fmt.Println("Error initialize storage.")
 			return err
@@ -41,42 +51,35 @@ func (inMemmory *MemStorage) InitializeStorage() error {
 }
 
 func (inMemmory *MemStorage) AddMetrics(metricsName string, metricsValue models.Metrics) error {
-	_, err := inMemmory.GetMetrics(metricsName)
-	if err == nil {
-		return errors.New("metrics Already exist in storage")
-	}
-
-	inMemmory.storage[metricsName] = metricsValue
+	inMemmory.Mutex.Lock()
+	defer inMemmory.Mutex.Unlock()
+	inMemmory.Storage[metricsName] = metricsValue
 	return nil
-
 }
 
 func (inMemmory *MemStorage) GetMetrics(metricsName string) (models.Metrics, error) {
-	metrics, ok := inMemmory.storage[metricsName]
+	inMemmory.Mutex.Lock()
+	defer inMemmory.Mutex.Unlock()
+	metrics, ok := inMemmory.Storage[metricsName]
 	if !ok {
-		metrics = models.Metrics{}
 		return metrics, errors.New("metrics with name not found")
 	}
 	return metrics, nil
-
 }
 
 func (inMemmory *MemStorage) UpdateMetrics(metricsName string, metricsValue models.Metrics) error {
-	_, err := inMemmory.GetMetrics(metricsName)
-
-	if err != nil {
-		message := fmt.Sprintf("Error update value %s", err.Error())
-		return errors.New(message)
-	}
-	inMemmory.storage[metricsName] = metricsValue
+	inMemmory.Mutex.Lock()
+	defer inMemmory.Mutex.Unlock()
+	inMemmory.Storage[metricsName] = metricsValue
 	return nil
 }
 
 func (inMemmory *MemStorage) GetAllMetricsNames() ([]string, error) {
+	inMemmory.Mutex.Lock()
+	defer inMemmory.Mutex.Unlock()
 	allMetricsNames := make([]string, 0)
-	for metricsName := range inMemmory.storage {
+	for metricsName := range inMemmory.Storage {
 		allMetricsNames = append(allMetricsNames, metricsName)
-
 	}
 	if len(allMetricsNames) == 0 {
 		return allMetricsNames, errors.New("empty storage! initialize before use")

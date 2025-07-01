@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"reflect"
@@ -17,8 +21,30 @@ import (
 )
 
 type Agent struct {
-	metricStorage store.MemStorage
-	config        AgentConfig
+	metricStorage *store.MemStorage
+	config        *AgentConfig
+}
+
+func NewAgent() (*Agent, error) {
+	newAgent := Agent{}
+
+	config := AgentConfig{}
+	agentFlags := flag.NewFlagSet("Agent flags", flag.PanicOnError)
+	agentFlags.StringVar(&config.serverAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
+	agentFlags.UintVar(&config.reportInterval, "r", 10, "report interval in seconds. default 10.")
+	agentFlags.UintVar(&config.pollInterval, "p", 2, "poll interval in seconds. default 2.")
+
+	agentFlags.Parse(os.Args[1:])
+	config.ParseEnvVariable()
+	newAgent.config = &config
+
+	newStorage, err := store.NewMemStorage()
+	if err != nil {
+		return nil, err
+	}
+	newAgent.metricStorage = newStorage
+
+	return &newAgent, nil
 }
 
 type AgentConfig struct {
@@ -124,16 +150,14 @@ func (agent *Agent) UpdateMetrics() error {
 }
 
 func (agent *Agent) SendMetrics() error {
-	requestPattern := "http://%s/%s/%s/%s"
+	requestPattern := "http://%s/update/%s/%s/%s"
 
 	allMMetricsName, err := agent.metricStorage.GetAllMetricsNames()
 	if err != nil {
 		return err
 	}
 
-	tr := &http.Transport{
-		ResponseHeaderTimeout: 10 * time.Second,
-	}
+	tr := &http.Transport{}
 	client := &http.Client{Transport: tr}
 
 	for _, name := range allMMetricsName {
@@ -159,19 +183,74 @@ func (agent *Agent) SendMetrics() error {
 	return nil
 }
 
-func (agent *Agent) MainLoop() error {
-	if err := agent.metricStorage.InitializeStorage(); err != nil {
+func (agent *Agent) SendJSONMetrics(useCompression bool) error {
+	allMMetricsName, err := agent.metricStorage.GetAllMetricsNames()
+	if err != nil {
 		return err
 	}
+	tr := &http.Transport{}
+	client := &http.Client{Transport: tr}
+	for _, name := range allMMetricsName {
+		currentMetrics, erro := agent.metricStorage.GetMetrics(name)
+		if erro != nil {
+			fmt.Print(erro.Error())
+			return erro
+		}
+		buf, err := json.Marshal(currentMetrics)
+		if err != nil {
+			return errors.New("error! json marshaling")
+		}
 
+		var requestBody bytes.Buffer
+
+		if useCompression {
+			zw := gzip.NewWriter(&requestBody)
+			if _, err := zw.Write(buf); err != nil {
+				return err
+			}
+			if err := zw.Close(); err != nil {
+				return nil
+			}
+		} else {
+			requestBody.Write(buf)
+		}
+		req, err := http.NewRequest(http.MethodPost, "http://"+agent.config.serverAddress+"/update/", &requestBody)
+		if err != nil {
+			return errors.New("error! create request")
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if useCompression {
+			req.Header.Set("Content-Encoding", "gzip")
+		}
+		response, err := client.Do(req)
+
+		if err != nil {
+			fmt.Printf("Client error send data %s \n", err.Error())
+			return err
+		}
+		defer response.Body.Close()
+
+		if response.StatusCode != http.StatusOK {
+			return errors.New("error update metrics on server!!! Response code not 200")
+		}
+
+	}
+	return nil
+}
+
+func (agent *Agent) MainLoop() error {
 	min := min(agent.config.reportInterval, agent.config.pollInterval)
 	reportPeriod := agent.config.reportInterval / min
 	pollPeriod := agent.config.pollInterval / min
 	count := 0
-
+	for {
+		if val := agent.isServerAvailabble(); val {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	for {
 		count++
-
 		time.Sleep(time.Duration(min) * time.Second)
 		if count%int(pollPeriod) == 0 {
 			if err := agent.UpdateMetrics(); err != nil {
@@ -179,7 +258,7 @@ func (agent *Agent) MainLoop() error {
 			}
 		}
 		if count%int(reportPeriod) == 0 {
-			if err := agent.SendMetrics(); err != nil {
+			if err := agent.SendJSONMetrics(false); err != nil {
 				return err
 			}
 		}
@@ -187,17 +266,22 @@ func (agent *Agent) MainLoop() error {
 
 }
 
-func main() {
-	agent := Agent{}
+func (agent *Agent) isServerAvailabble() bool {
+	conn, err := net.Dial("tcp", agent.config.serverAddress)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
 
-	agentFlags := flag.NewFlagSet("Agent flags", flag.ExitOnError)
-	agentFlags.StringVar(&agent.config.serverAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
-	agentFlags.UintVar(&agent.config.reportInterval, "r", 10, "report interval in seconds. default 10.")
-	agentFlags.UintVar(&agent.config.pollInterval, "p", 2, "poll interval in seconds. default 2.")
-	agentFlags.Parse(os.Args[1:])
-	agent.config.ParseEnvVariable()
+func main() {
+	agent, err := NewAgent()
+	if err != nil {
+		panic(err.Error())
+	}
 
 	if err := agent.MainLoop(); err != nil {
-		fmt.Print(err.Error())
+		panic(err.Error())
 	}
 }

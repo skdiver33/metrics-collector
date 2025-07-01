@@ -1,114 +1,169 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
+	"strconv"
+	"time"
 
-	"github.com/go-chi/chi"
+	chi "github.com/go-chi/chi/v5"
+	serverHandlers "github.com/skdiver33/metrics-collector/internal/server"
 	"github.com/skdiver33/metrics-collector/internal/store"
 	"github.com/skdiver33/metrics-collector/models"
 )
 
-type MetricsHandler struct {
-	metricsStorage store.MemStorage
+type ServerConfig struct {
+	listenAddress   string
+	storeInterval   uint
+	storageDumpPath string
+	isDumpRestore   bool
 }
 
-func (handler *MetricsHandler) receiveMetricsHandler(rw http.ResponseWriter, request *http.Request) {
+func newServerConfig() *ServerConfig {
 
-	metricsType := chi.URLParam(request, "metricsType")
-	metricsName := chi.URLParam(request, "metricsName")
-	metricsValue := chi.URLParam(request, "metricsValue")
-
-	//for testing 3 iteration add test metrics name in storage
-	if strings.Contains(metricsName, "testSetGet") {
-		handler.metricsStorage.AddMetrics(metricsName, models.Metrics{MType: metricsType})
-	}
-
-	if strings.Compare(metricsType, models.Counter) != 0 && strings.Compare(metricsType, models.Gauge) != 0 {
-		http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
-		return
-	}
-
-	if metricsName == "" {
-		http.Error(rw, "Not all metrics data defined!", http.StatusNotFound)
-		return
-	}
-	currentMetrics, err := handler.metricsStorage.GetMetrics(metricsName)
-	if err != nil {
-		http.Error(rw, "metrics not found", http.StatusBadRequest)
-		return
-	}
-	if err := currentMetrics.SetMetricsValue(metricsValue); err != nil {
-		http.Error(rw, "error set up new value in metrics", http.StatusBadRequest)
-		return
-	}
-	if err := handler.metricsStorage.UpdateMetrics(metricsName, currentMetrics); err != nil {
-		http.Error(rw, "error update metrics on server", http.StatusInternalServerError)
-		return
-	}
-	rw.Header().Set("Content-type", "text/plain")
-	rw.WriteHeader(http.StatusOK)
-
-}
-
-func (handler *MetricsHandler) returnAllMetricsHandler(rw http.ResponseWriter, request *http.Request) {
-	answer := "<!DOCTYPE html>\n<html>\n<head>\n<title> Known metrics </title>\n</head>\n<body\n>"
-	metricsNames, err := handler.metricsStorage.GetAllMetricsNames()
-	if err != nil {
-		http.Error(rw, "error get metrics name from storage", http.StatusInternalServerError)
-		return
-	}
-	for _, name := range metricsNames {
-		metrics, _ := handler.metricsStorage.GetMetrics(name)
-		answer = fmt.Sprintf("<p>%s %s %s %s </p>\n", answer, name, metrics.MType, metrics.GetMetricsValue())
-	}
-	answer += "</body>\n</html>"
-	rw.Header().Set("Content-type", "text/html")
-	rw.WriteHeader(http.StatusOK)
-	rw.Write([]byte(answer))
-
-}
-
-func (handler *MetricsHandler) metricsInfoHandler(rw http.ResponseWriter, request *http.Request) {
-	metricsName := chi.URLParam(request, "metricsName")
-	metrics, err := handler.metricsStorage.GetMetrics(metricsName)
-	if err != nil {
-		http.Error(rw, "error get metrics from storage", http.StatusNotFound)
-		return
-	}
-	rw.Header().Set("Content-type", "text/plain")
-	rw.WriteHeader(http.StatusOK)
-	rw.Write([]byte(metrics.GetMetricsValue()))
-}
-
-func MetricRouter() chi.Router {
-	handler := MetricsHandler{}
-	handler.metricsStorage.InitializeStorage()
-	r := chi.NewRouter()
-	r.Route("/", func(r chi.Router) {
-		r.Get("/", handler.returnAllMetricsHandler)
-		r.Get("/value/{metricsType}/{metricsName}", handler.metricsInfoHandler)
-		r.Post("/update/{metricsType}/{metricsName}/{metricsValue}", handler.receiveMetricsHandler)
-	})
-	return r
-}
-
-func main() {
-
-	serverFlags := flag.NewFlagSet("Start flags", flag.ExitOnError)
-	startAdress := serverFlags.String("a", "localhost:8080", "adress for start server")
+	serverConfig := ServerConfig{}
+	serverFlags := flag.NewFlagSet("Server config flags", flag.ContinueOnError)
+	serverFlags.StringVar(&serverConfig.listenAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
+	serverFlags.UintVar(&serverConfig.storeInterval, "i", 10, "store interval in seconds. default 300.")
+	serverFlags.StringVar(&serverConfig.storageDumpPath, "f", "/tmp/storage_dump.json", "path to file for storage dump")
+	serverFlags.BoolVar(&serverConfig.isDumpRestore, "r", false, "use dump for restore storage state")
 	serverFlags.Parse(os.Args[1:])
 
 	envServerAddr, ok := os.LookupEnv("ADDRESS")
 	if ok {
-		startAdress = &envServerAddr
+		serverConfig.listenAddress = envServerAddr
 	}
 
-	if err := http.ListenAndServe(*startAdress, MetricRouter()); err != nil {
-		panic("Error start server")
+	envStoreINterval, ok := os.LookupEnv("STORE_INTERVAL")
+	if ok {
+		interval, err := strconv.ParseUint(envStoreINterval, 10, 32)
+		if err != nil {
+			panic("can`t convert STORE_INTERVAL env variable")
+		}
+		serverConfig.storeInterval = uint(interval)
+	}
+
+	envFileStoragePAth, ok := os.LookupEnv("FILE_STORAGE_PATH")
+	if ok {
+		serverConfig.storageDumpPath = envFileStoragePAth
+	}
+
+	envIsRestoreFlag, ok := os.LookupEnv("RESTORE")
+	if ok {
+		isRestore, err := strconv.ParseBool(envIsRestoreFlag)
+		if err != nil {
+			panic("can`t convert RESTORE env variable")
+		}
+		serverConfig.isDumpRestore = isRestore
+	}
+
+	return &serverConfig
+}
+
+type Server struct {
+	config  *ServerConfig
+	storage store.StorageInterface
+	router  http.Handler
+}
+
+func NewServer() (*Server, error) {
+	newServer := Server{}
+
+	serverConfig := newServerConfig()
+	newServer.config = serverConfig
+
+	newStorage, err := store.NewMemStorage()
+	if err != nil {
+		return nil, err
+	}
+	newServer.storage = newStorage
+
+	if serverConfig.isDumpRestore {
+		if _, err := os.Stat(serverConfig.storageDumpPath); err == nil {
+			newServer.readStorageDump()
+		} else if !errors.Is(err, os.ErrNotExist) {
+			panic(err.Error())
+		}
+
+	}
+
+	newHandler, err := serverHandlers.NewMetricsHandler(newStorage)
+	if err != nil {
+		return nil, err
+	}
+	newRouter := chi.NewRouter()
+	newRouter.Use(newHandler.RequestLogger)
+	newRouter.Use(newHandler.GzipHandle)
+	newRouter.Route("/", func(r chi.Router) {
+		r.Get("/", newHandler.GetAllMetrics)
+		r.Route("/value", func(r chi.Router) {
+			r.Post("/", newHandler.GetJSONMetrics)
+			r.Get("/{metricsType}/{metricsName}", newHandler.GetMetrics)
+		})
+		r.Route("/update", func(r chi.Router) {
+			r.Post("/", newHandler.SetJSONMetrics)
+			r.Post("/{metricsType}/{metricsName}/{metricsValue}", newHandler.SetMetrics)
+		})
+	})
+	newServer.router = newRouter
+	return &newServer, nil
+
+}
+
+func (server *Server) writeStorageDump() error {
+	storage, ok := server.storage.(*store.MemStorage)
+	if !ok {
+		return errors.New("error get storage from server")
+	}
+	storage.Mutex.Lock()
+	defer storage.Mutex.Unlock()
+	data, err := json.Marshal(storage.Storage)
+	if err != nil {
+		panic("error convert to JSON all metrics")
+	}
+	err = os.WriteFile(server.config.storageDumpPath, data, 0666)
+	if err != nil {
+		panic("error write data to file")
+	}
+	return nil
+}
+
+func (server *Server) readStorageDump() error {
+	readData, err := os.ReadFile(server.config.storageDumpPath)
+	if err != nil {
+		panic("cannot read data from file")
+	}
+	readStorage := make(map[string]models.Metrics)
+	err = json.Unmarshal(readData, &readStorage)
+	if err != nil {
+		panic("cannot convert data from JSON")
+	}
+	for name, value := range readStorage {
+		server.storage.UpdateMetrics(name, value)
+	}
+	return nil
+}
+
+func main() {
+
+	server, err := NewServer()
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Println(server.storage)
+	go func() {
+		for {
+			time.Sleep(time.Duration(server.config.storeInterval) * time.Second)
+			server.writeStorageDump()
+		}
+	}()
+
+	if err := http.ListenAndServe(server.config.listenAddress, server.router); err != nil {
+		panic(err.Error())
 	}
 
 }

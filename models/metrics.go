@@ -59,7 +59,8 @@ func (metrics *Metrics) SetMetricsValue(newValue string) error {
 				metrics.Delta = &newValue
 				break
 			}
-			*metrics.Delta += int64(value)
+			newDelta := *(metrics.Delta) + int64(value)
+			metrics.Delta = &newDelta
 		}
 	case Gauge:
 		{
