@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	chi "github.com/go-chi/chi/v5"
 	serverHandlers "github.com/skdiver33/metrics-collector/internal/server"
@@ -114,7 +115,12 @@ func NewServer() (*Server, error) {
 	newServer.storage = newStorage
 
 	if serverConfig.isDumpRestore {
-		newServer.readStorageDump()
+		if _, err := os.Stat(serverConfig.storageDumpPath); err == nil {
+			newServer.readStorageDump()
+		} else if !errors.Is(err, os.ErrNotExist) {
+			panic(err.Error())
+		}
+
 	}
 
 	newHandler, err := serverHandlers.NewMetricsHandler(newStorage)
@@ -123,7 +129,7 @@ func NewServer() (*Server, error) {
 	}
 	newRouter := chi.NewRouter()
 	//newRouter.Use(newHandler.RequestLogger)
-	//newRouter.Use(newHandler.GzipHandle)
+	newRouter.Use(newHandler.GzipHandle)
 	newRouter.Route("/", func(r chi.Router) {
 		r.Get("/", newHandler.GetAllMetrics)
 		r.Route("/value", func(r chi.Router) {
@@ -158,7 +164,7 @@ func (server *Server) writeStorageDump() error {
 	return nil
 }
 
-func (server *Server) readStorageDump() {
+func (server *Server) readStorageDump() error {
 	readData, err := os.ReadFile(server.config.storageDumpPath)
 	if err != nil {
 		panic("cannot read data from file")
@@ -171,7 +177,7 @@ func (server *Server) readStorageDump() {
 	for name, value := range readStorage {
 		server.storage.UpdateMetrics(name, value)
 	}
-
+	return nil
 }
 
 func main() {
@@ -181,12 +187,12 @@ func main() {
 		panic(err.Error())
 	}
 	fmt.Println(server.storage)
-	// go func() {
-	// 	for {
-	// 		time.Sleep(time.Duration(server.config.storeInterval) * time.Second)
-	// 		server.writeStorageDump()
-	// 	}
-	// }()
+	go func() {
+		for {
+			time.Sleep(time.Duration(server.config.storeInterval) * time.Second)
+			server.writeStorageDump()
+		}
+	}()
 
 	if err := http.ListenAndServe(server.config.listenAddress, server.router); err != nil {
 		panic(err.Error())
