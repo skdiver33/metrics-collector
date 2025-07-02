@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -44,40 +45,47 @@ func (handler *MetricsHandler) SetMetrics(rw http.ResponseWriter, request *http.
 	metricsValue := chi.URLParam(request, "metricsValue")
 
 	//for testing 3 iteration add test metrics name in storage
-	if strings.Contains(metricsName, "SetGet") {
-		_, err := handler.metricsStorage.GetMetrics(metricsName)
-		if err != nil {
-			testMetrics := models.Metrics{ID: metricsName, MType: metricsType}
-			testMetrics.SetMetricsValue("0")
-			handler.metricsStorage.AddMetrics(metricsName, testMetrics)
-		}
+	// if strings.Contains(metricsName, "SetGet") {
+	// 	_, err := handler.metricsStorage.GetMetrics(metricsName)
+	// 	if err != nil {
+	// 		testMetrics := models.Metrics{ID: metricsName, MType: metricsType}
+	// 		testMetrics.SetMetricsValue("0")
+	// 		handler.metricsStorage.AddMetrics(metricsName, testMetrics)
+	// 	}
 
-	}
+	// }
 
-	if strings.Compare(metricsType, models.Counter) != 0 && strings.Compare(metricsType, models.Gauge) != 0 {
-		http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
+	if metricsType != models.Counter && metricsType != models.Gauge {
+		log.Print("wrong metrics type")
+		http.Error(rw, "wrong metrics type", http.StatusBadRequest)
 		return
 	}
 
-	if metricsName == "" {
-		http.Error(rw, "Not all metrics data defined!", http.StatusNotFound)
-		return
-	}
+	// if metricsName == "" {
+	// 	log.Print("not all metrics data defined!")
+	// 	http.Error(rw, "not all metrics data defined!", http.StatusNotFound)
+	// 	return
+	// }
+
 	currentMetrics, err := handler.metricsStorage.GetMetrics(metricsName)
 	if err != nil {
-		http.Error(rw, "metrics not found", http.StatusBadRequest)
+
+		log.Printf("metrics %s not found!", metricsName)
+		http.Error(rw, "metrics not found!", http.StatusBadRequest)
 		return
 	}
 	if err := currentMetrics.SetMetricsValue(metricsValue); err != nil {
-		http.Error(rw, "error set up new value in metrics", http.StatusBadRequest)
+		log.Print("error set up new value in metrics")
+		http.Error(rw, "", http.StatusBadRequest)
 		return
 	}
 	if err := handler.metricsStorage.UpdateMetrics(metricsName, currentMetrics); err != nil {
-		http.Error(rw, "error update metrics on server", http.StatusInternalServerError)
+		log.Print("error update metrics on server")
+		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}
 	rw.Header().Set("Content-type", "text/plain")
-	rw.WriteHeader(http.StatusOK) //????
+	rw.WriteHeader(http.StatusOK)
 }
 
 func (handler *MetricsHandler) SetJSONMetrics(rw http.ResponseWriter, request *http.Request) {
@@ -98,27 +106,32 @@ func (handler *MetricsHandler) SetJSONMetrics(rw http.ResponseWriter, request *h
 		}
 	}
 
-	if strings.Compare(receiveMetrics.MType, models.Counter) != 0 && strings.Compare(receiveMetrics.MType, models.Gauge) != 0 {
+	if receiveMetrics.MType != models.Counter && receiveMetrics.MType != models.Gauge {
+		log.Print("Wrong metrics type")
 		http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
 		return
 	}
 
 	if receiveMetrics.ID == "" {
+		log.Print("empty metrics name ")
 		http.Error(rw, "empty metrics name !", http.StatusNotFound)
 		return
 	}
 
 	currentMetrics, err := handler.metricsStorage.GetMetrics(receiveMetrics.ID)
 	if err != nil {
+		log.Print("metrics not found")
 		http.Error(rw, "metrics not found", http.StatusBadRequest)
 		return
 	}
 	if err := currentMetrics.SetMetricsValue(receiveMetrics.GetMetricsValue()); err != nil {
+		log.Print("error set up new value in metrics")
 		http.Error(rw, "error set up new value in metrics", http.StatusBadRequest)
 		return
 	}
 	if err := handler.metricsStorage.UpdateMetrics(receiveMetrics.ID, currentMetrics); err != nil {
-		http.Error(rw, "error update metrics on server", http.StatusInternalServerError)
+		log.Print("error set up new value in metrics")
+		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}
 
@@ -130,19 +143,18 @@ func (handler *MetricsHandler) SetJSONMetrics(rw http.ResponseWriter, request *h
 
 	rw.Header().Set("Content-Type", "application/json")
 	rw.Write(resp)
-	//rw.WriteHeader(http.StatusOK)
 }
 
 func (handler *MetricsHandler) GetMetrics(rw http.ResponseWriter, request *http.Request) {
 	metricsName := chi.URLParam(request, "metricsName")
 	metrics, err := handler.metricsStorage.GetMetrics(metricsName)
 	if err != nil {
+		log.Print("error get metrics from storage")
 		http.Error(rw, "error get metrics from storage", http.StatusNotFound)
 		return
 	}
 
 	rw.Header().Set("Content-type", "text/plain")
-	//rw.WriteHeader(http.StatusOK)
 	rw.Write([]byte(metrics.GetMetricsValue()))
 }
 
@@ -156,19 +168,20 @@ func (handler *MetricsHandler) GetJSONMetrics(rw http.ResponseWriter, request *h
 
 	response, err := handler.metricsStorage.GetMetrics(receiveMetrics.ID)
 	if err != nil {
+		log.Print("error get metrics from storage")
 		http.Error(rw, "error get metrics from storage", http.StatusNotFound)
 		return
 	}
 
 	resp, err := json.Marshal(response)
 	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		log.Print("error Marshal response")
+		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}
 
 	rw.Header().Set("Content-Type", "application/json")
 	rw.Write(resp)
-	// rw.WriteHeader(http.StatusOK)
 }
 
 func (handler *MetricsHandler) GetAllMetrics(rw http.ResponseWriter, request *http.Request) {
@@ -186,7 +199,6 @@ func (handler *MetricsHandler) GetAllMetrics(rw http.ResponseWriter, request *ht
 
 	rw.Header().Set("Content-type", "text/html")
 	rw.Write([]byte(answer))
-	//rw.WriteHeader(http.StatusOK)
 }
 
 //************************* Logger Handler *********************************************
@@ -259,12 +271,12 @@ func (handler *MetricsHandler) GzipHandle(next http.Handler) http.Handler {
 		if strings.Compare(r.Header.Get("Content-Encoding"), "gzip") == 0 {
 			gz, err := gzip.NewReader(r.Body)
 			if err != nil {
-				fmt.Println("error create gzip")
+				log.Println("error create gzip")
 				return
 			}
 			decompressBody, err := io.ReadAll(gz)
 			if err != nil {
-				fmt.Println("error decompress body")
+				log.Println("error decompress body")
 				return
 			}
 			gz.Close()
