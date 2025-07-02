@@ -207,10 +207,11 @@ func (agent *Agent) MainLoop() {
 		for {
 			time.Sleep(time.Duration(agent.config.pollInterval) * time.Second)
 			if err := agent.UpdateMetrics(); err != nil {
+				ch <- 1
 				panic(fmt.Sprintf("error in update gorutine %s", err.Error()))
 			}
 		}
-		ch <- 1
+
 	}()
 
 	go func() {
@@ -218,7 +219,7 @@ func (agent *Agent) MainLoop() {
 			time.Sleep(time.Duration(agent.config.reportInterval) * time.Second)
 			agent.SendMetrics()
 		}
-		ch <- 2
+
 	}()
 
 	<-ch
