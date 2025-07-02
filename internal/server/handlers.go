@@ -44,36 +44,19 @@ func (handler *MetricsHandler) SetMetrics(rw http.ResponseWriter, request *http.
 	metricsName := chi.URLParam(request, "metricsName")
 	metricsValue := chi.URLParam(request, "metricsValue")
 
-	//for testing 3 iteration add test metrics name in storage
-	// if strings.Contains(metricsName, "SetGet") {
-	// 	_, err := handler.metricsStorage.GetMetrics(metricsName)
-	// 	if err != nil {
-	// 		testMetrics := models.Metrics{ID: metricsName, MType: metricsType}
-	// 		testMetrics.SetMetricsValue("0")
-	// 		handler.metricsStorage.AddMetrics(metricsName, testMetrics)
-	// 	}
-
-	// }
-
 	if metricsType != models.Counter && metricsType != models.Gauge {
 		log.Print("wrong metrics type")
 		http.Error(rw, "wrong metrics type", http.StatusBadRequest)
 		return
 	}
 
-	// if metricsName == "" {
-	// 	log.Print("not all metrics data defined!")
-	// 	http.Error(rw, "not all metrics data defined!", http.StatusNotFound)
-	// 	return
-	// }
-
 	currentMetrics, err := handler.metricsStorage.GetMetrics(metricsName)
 	if err != nil {
-
-		log.Printf("metrics %s not found!", metricsName)
-		http.Error(rw, "metrics not found!", http.StatusBadRequest)
-		return
+		currentMetrics = models.Metrics{ID: metricsName, MType: metricsType}
+		currentMetrics.SetMetricsValue("0")
+		handler.metricsStorage.AddMetrics(metricsName, currentMetrics)
 	}
+
 	if err := currentMetrics.SetMetricsValue(metricsValue); err != nil {
 		log.Print("error set up new value in metrics")
 		http.Error(rw, "", http.StatusBadRequest)
@@ -120,10 +103,11 @@ func (handler *MetricsHandler) SetJSONMetrics(rw http.ResponseWriter, request *h
 
 	currentMetrics, err := handler.metricsStorage.GetMetrics(receiveMetrics.ID)
 	if err != nil {
-		log.Print("metrics not found")
-		http.Error(rw, "metrics not found", http.StatusBadRequest)
-		return
+		currentMetrics = models.Metrics{ID: receiveMetrics.ID, MType: receiveMetrics.MType}
+		currentMetrics.SetMetricsValue("0")
+		handler.metricsStorage.AddMetrics(receiveMetrics.ID, currentMetrics)
 	}
+
 	if err := currentMetrics.SetMetricsValue(receiveMetrics.GetMetricsValue()); err != nil {
 		log.Print("error set up new value in metrics")
 		http.Error(rw, "error set up new value in metrics", http.StatusBadRequest)

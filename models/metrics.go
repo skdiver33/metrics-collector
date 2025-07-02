@@ -48,7 +48,6 @@ func (metrics *Metrics) SetMetricsValue(newValue string) error {
 	switch metrics.MType {
 	case Counter:
 		{
-
 			value, err := strconv.Atoi(newValue)
 			if err != nil {
 				return errors.New("wrong metrics type")
