@@ -39,7 +39,6 @@ func NewMetricsHandler(storage store.StorageInterface) (*MetricsHandler, error) 
 
 func (handler *MetricsHandler) SetMetrics(rw http.ResponseWriter, request *http.Request) {
 
-	fmt.Print("Receive new metrics not JSON")
 	metricsType := chi.URLParam(request, "metricsType")
 	metricsName := chi.URLParam(request, "metricsName")
 	metricsValue := chi.URLParam(request, "metricsValue")
@@ -79,16 +78,6 @@ func (handler *MetricsHandler) SetJSONMetrics(rw http.ResponseWriter, request *h
 		return
 	}
 
-	//for testing 7 iteration add test metrics name in storage
-	if strings.Contains(receiveMetrics.ID, "GetSet") {
-		_, err := handler.metricsStorage.GetMetrics(receiveMetrics.ID)
-		if err != nil {
-			testMetrics := models.Metrics{ID: receiveMetrics.ID, MType: receiveMetrics.MType}
-			testMetrics.SetMetricsValue("0")
-			handler.metricsStorage.AddMetrics(receiveMetrics.ID, testMetrics)
-		}
-	}
-
 	if receiveMetrics.MType != models.Counter && receiveMetrics.MType != models.Gauge {
 		log.Print("Wrong metrics type")
 		http.Error(rw, "Wrong metrics type", http.StatusBadRequest)
@@ -108,7 +97,8 @@ func (handler *MetricsHandler) SetJSONMetrics(rw http.ResponseWriter, request *h
 		handler.metricsStorage.AddMetrics(receiveMetrics.ID, currentMetrics)
 	}
 
-	if err := currentMetrics.SetMetricsValue(receiveMetrics.GetMetricsValue()); err != nil {
+	newValue := receiveMetrics.GetMetricsValue()
+	if err := currentMetrics.SetMetricsValue(newValue); err != nil {
 		log.Print("error set up new value in metrics")
 		http.Error(rw, "error set up new value in metrics", http.StatusBadRequest)
 		return
@@ -243,6 +233,7 @@ func (w gzipWriter) Write(b []byte) (int, error) {
 	for _, value := range typeForGzip {
 		if strings.Contains(contentTypes, value) {
 			w.Header().Set("Content-Encoding", "gzip")
+			w.WriteHeader(http.StatusOK)
 			return w.Writer.Write(b)
 		}
 	}
@@ -252,7 +243,7 @@ func (w gzipWriter) Write(b []byte) (int, error) {
 func (handler *MetricsHandler) GzipHandle(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
-		if strings.Compare(r.Header.Get("Content-Encoding"), "gzip") == 0 {
+		if r.Header.Get("Content-Encoding") == "gzip" {
 			gz, err := gzip.NewReader(r.Body)
 			if err != nil {
 				log.Println("error create gzip")

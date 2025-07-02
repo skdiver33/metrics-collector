@@ -120,8 +120,6 @@ func (inMemmory *MemStorage) RestoreMetricsFromFile(filename string) {
 		log.Printf("file with dump %s not exist", filename)
 		return
 	}
-	inMemmory.mu.Lock()
-	defer inMemmory.mu.Unlock()
 
 	readData, err := os.ReadFile(filename)
 	if err != nil {
