@@ -28,7 +28,10 @@ func TestAgent_SendMetrics(t *testing.T) {
 			if err != nil {
 				t.Error("error init storage")
 			}
-			agent := agent.NewAgent(newStorage)
+			agent, err := agent.NewAgent(newStorage)
+			if err != nil {
+				t.Error("error inicreatet agent")
+			}
 
 			agent.UpdateMetrics()
 			if err := agent.UpdateMetrics(); (err != nil) != tt.wantErr {

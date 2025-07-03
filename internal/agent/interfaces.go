@@ -27,18 +27,21 @@ type Agent struct {
 
 type AgentConfig struct {
 	serverAddress  string
-	pollInterval   uint
-	reportInterval uint
+	pollInterval   time.Duration
+	reportInterval time.Duration
 }
 
-func NewAgentConfig() *AgentConfig {
+func NewAgentConfig() (*AgentConfig, error) {
 
 	newConfig := AgentConfig{}
 
 	agentFlags := flag.NewFlagSet("Agent flags", flag.ContinueOnError)
 	agentFlags.StringVar(&newConfig.serverAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
-	agentFlags.UintVar(&newConfig.reportInterval, "r", 10, "report interval in seconds. default 10.")
-	agentFlags.UintVar(&newConfig.pollInterval, "p", 2, "poll interval in seconds. default 2.")
+	interval := uint(0)
+	agentFlags.UintVar(&interval, "r", 10, "report interval in seconds. default 10.")
+	newConfig.reportInterval = time.Duration(interval) * time.Second
+	agentFlags.UintVar(&interval, "p", 2, "poll interval in seconds. default 2.")
+	newConfig.pollInterval = time.Duration(interval) * time.Second
 	agentFlags.Parse(os.Args[1:])
 
 	envServerAddr, ok := os.LookupEnv("ADDRESS")
@@ -50,30 +53,32 @@ func NewAgentConfig() *AgentConfig {
 	if ok {
 		interval, err := strconv.ParseUint(envPollINterval, 10, 32)
 		if err != nil {
-			panic("can`t convert STORE_INTERVAL env variable")
+			return nil, errors.New("can`t convert STORE_INTERVAL env variable")
 		}
-		newConfig.pollInterval = uint(interval)
+		newConfig.pollInterval = time.Duration(interval) * time.Second
 	}
 
 	envReportINterval, ok := os.LookupEnv("REPORT_INTERVAL")
 	if ok {
 		interval, err := strconv.ParseUint(envReportINterval, 10, 32)
 		if err != nil {
-			panic("can`t convert STORE_INTERVAL env variable")
+			return nil, errors.New("can`t convert STORE_INTERVAL env variable")
 		}
-		newConfig.reportInterval = uint(interval)
+		newConfig.reportInterval = time.Duration(interval) * time.Second
 	}
 
-	return &newConfig
+	return &newConfig, nil
 }
 
-func NewAgent(storage store.StorageInterface) *Agent {
+func NewAgent(storage store.StorageInterface) (*Agent, error) {
 
 	newAgent := Agent{}
-	newAgent.config = NewAgentConfig()
-
+	var err error
+	if newAgent.config, err = NewAgentConfig(); err != nil {
+		return nil, err
+	}
 	newAgent.metricStorage = storage
-	return &newAgent
+	return &newAgent, nil
 }
 
 func (agent *Agent) UpdateMetrics() error {
@@ -100,7 +105,6 @@ func (agent *Agent) UpdateMetrics() error {
 					case reflect.Uint64, reflect.Uint32:
 						newValue = float64(fieldValue.Uint())
 					default:
-						log.Printf("unhandled kind")
 						return errors.New("wrong data type in source of gauge metrics")
 					}
 				}
@@ -126,7 +130,7 @@ func (agent *Agent) UpdateMetrics() error {
 	return nil
 }
 
-func (agent *Agent) SendMetrics() {
+func (agent *Agent) SendMetrics() error {
 	requestPattern := "http://%s/update/%s/%s/%s"
 
 	tr := &http.Transport{}
@@ -137,18 +141,17 @@ func (agent *Agent) SendMetrics() {
 
 		response, err := client.Post(fmt.Sprintf(requestPattern, agent.config.serverAddress, metrics.MType, metrics.ID, metrics.GetMetricsValue()), "Content-Type: text/plain", nil)
 		if err != nil {
-			log.Printf("error send metrics %s. error:  %s", metrics.ID, err.Error())
-			return
+			return fmt.Errorf("error send metrics %s. error:  %s", metrics.ID, err.Error())
 		}
 		defer response.Body.Close()
 		if response.StatusCode != http.StatusOK {
-			log.Printf("error update metrics %s on server. Response code: %d ", metrics.ID, response.StatusCode)
-			return
+			return fmt.Errorf("error update metrics %s on server. Response code: %d ", metrics.ID, response.StatusCode)
 		}
 	}
+	return nil
 }
 
-func (agent *Agent) SendJSONMetrics(useCompression bool) {
+func (agent *Agent) SendJSONMetrics(useCompression bool) error {
 
 	tr := &http.Transport{}
 	client := &http.Client{Transport: tr}
@@ -158,7 +161,7 @@ func (agent *Agent) SendJSONMetrics(useCompression bool) {
 
 		buf, err := json.Marshal(metrics)
 		if err != nil {
-			log.Panicf("error marshal metrics to JSON. error: %s", err.Error())
+			return fmt.Errorf("error marshal metrics to JSON. error: %s", err.Error())
 		}
 
 		var requestBody bytes.Buffer
@@ -166,19 +169,18 @@ func (agent *Agent) SendJSONMetrics(useCompression bool) {
 		if useCompression {
 			zw := gzip.NewWriter(&requestBody)
 			if _, err := zw.Write(buf); err != nil {
-				log.Printf("error compress metrics %s. error: %s", metrics.ID, err.Error())
-				return
+				return fmt.Errorf("error compress metrics %s. error: %s", metrics.ID, err.Error())
+
 			}
 			if err := zw.Close(); err != nil {
-				log.Printf("error close zip writer. error: %s", err.Error())
-				return
+				return fmt.Errorf("error close zip writer. error: %s", err.Error())
 			}
 		} else {
 			requestBody.Write(buf)
 		}
 		req, err := http.NewRequest(http.MethodPost, "http://"+agent.config.serverAddress+"/update/", &requestBody)
 		if err != nil {
-			log.Panicf("error! create request. error: %s", err.Error())
+			return fmt.Errorf("error! create request. error: %s", err.Error())
 		}
 		req.Header.Set("Content-Type", "application/json")
 		if useCompression {
@@ -187,28 +189,38 @@ func (agent *Agent) SendJSONMetrics(useCompression bool) {
 		response, err := client.Do(req)
 
 		if err != nil {
-			log.Printf("error send metrics %s error %s", metrics.ID, err.Error())
-			return
+			return fmt.Errorf("error send metrics %s error %s", metrics.ID, err.Error())
 		}
 		defer response.Body.Close()
 
 		if response.StatusCode != http.StatusOK {
-			log.Printf("error update metrics %s on server. Response code %d ", metrics.ID, response.StatusCode)
-			return
+			return fmt.Errorf("error update metrics %s on server. Response code %d ", metrics.ID, response.StatusCode)
 		}
 
 	}
+	return nil
 }
 
 func (agent *Agent) MainLoop() {
-	ch := make(chan int)
+
+	poolTicker := time.NewTicker(agent.config.pollInterval)
+	defer poolTicker.Stop()
+
+	reportTicker := time.NewTicker(agent.config.reportInterval)
+	defer reportTicker.Stop()
+
+	ch := make(chan bool)
+	done := make(chan bool)
 
 	go func() {
 		for {
-			time.Sleep(time.Duration(agent.config.pollInterval) * time.Second)
-			if err := agent.UpdateMetrics(); err != nil {
-				ch <- 1
-				panic(fmt.Sprintf("error in update gorutine %s", err.Error()))
+			select {
+			case v := <-done:
+				ch <- v
+			case <-poolTicker.C:
+				if err := agent.UpdateMetrics(); err != nil {
+					log.Printf("error update metrics. error: %s", err.Error())
+				}
 			}
 		}
 
@@ -216,11 +228,16 @@ func (agent *Agent) MainLoop() {
 
 	go func() {
 		for {
-			time.Sleep(time.Duration(agent.config.reportInterval) * time.Second)
-			agent.SendMetrics()
+			select {
+			case v := <-done:
+				ch <- v
+			case <-reportTicker.C:
+				if err := agent.SendJSONMetrics(false); err != nil {
+					log.Printf("error send metrics. error: %s", err.Error())
+				}
+			}
 		}
 
 	}()
-
 	<-ch
 }

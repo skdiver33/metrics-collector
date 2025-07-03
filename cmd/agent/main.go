@@ -11,7 +11,10 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-	agent := agent.NewAgent(agentStorage)
+	agent, err := agent.NewAgent(agentStorage)
+	if err != nil {
+		panic(err.Error())
+	}
 
 	agent.MainLoop()
 }
