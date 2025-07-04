@@ -233,7 +233,7 @@ func (agent *Agent) MainLoop() {
 				ch <- v
 			case <-reportTicker.C:
 				if err := agent.SendJSONMetrics(false); err != nil {
-					log.Printf("error send metrics. error: %s", err.Error())
+					log.Printf("error send metrics. error: %v", err)
 				}
 			}
 		}
