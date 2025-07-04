@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/skdiver33/metrics-collector/internal/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,8 +25,14 @@ func testRequest(t *testing.T, ts *httptest.Server, method, path string) (*http.
 	return resp, string(respBody)
 }
 
-func TestRouter(t *testing.T) {
-	ts := httptest.NewServer(MetricRouter())
+func TestServer(t *testing.T) {
+
+	newServer, err := server.NewServer()
+
+	if err != nil {
+		t.Error("error inialize server")
+	}
+	ts := httptest.NewServer(newServer.HandlersRouter)
 	defer ts.Close()
 	var testTable = []struct {
 		url    string
