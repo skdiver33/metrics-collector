@@ -275,3 +275,21 @@ func (handler *MetricsHandler) GzipHandle(next http.Handler) http.Handler {
 		next.ServeHTTP(gzipWriter{ResponseWriter: w, Writer: gz}, r)
 	})
 }
+
+func (handler *MetricsHandler) PingDB(rw http.ResponseWriter, request *http.Request) {
+	switch value := handler.metricsStorage.(type) {
+	case store.DBInterface:
+		{
+			err := value.PingDB()
+			if err != nil {
+				log.Print("DB not connected")
+				http.Error(rw, "", http.StatusInternalServerError)
+			}
+			rw.WriteHeader(http.StatusOK)
+			return
+		}
+	default:
+		http.Error(rw, "", http.StatusBadRequest)
+
+	}
+}

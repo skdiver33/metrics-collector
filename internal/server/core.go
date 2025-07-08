@@ -2,6 +2,7 @@ package server
 
 import (
 	"flag"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -70,9 +71,9 @@ func NewServer() (*Server, error) {
 
 	newServer.Config = newServerConfig()
 
-	newStorage, err := store.NewMemStorage()
+	newStorage, err := store.NewSQLStorage()
 	if err != nil {
-		panic("error initialize storage in server")
+		log.Fatalf("error initialize storage in server %s", err.Error())
 	}
 	newServer.Storage = newStorage
 
@@ -89,6 +90,7 @@ func NewServer() (*Server, error) {
 	newRouter.Use(newHandler.GzipHandle)
 	newRouter.Route("/", func(r chi.Router) {
 		r.Get("/", newHandler.GetAllMetrics)
+		r.Get("/ping", newHandler.PingDB)
 		r.Route("/value", func(r chi.Router) {
 			r.Post("/", newHandler.GetJSONMetrics)
 			r.Get("/{metricsType}/{metricsName}", newHandler.GetMetrics)

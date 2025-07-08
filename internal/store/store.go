@@ -27,16 +27,6 @@ func NewMemStorage() (*MemStorage, error) {
 	return &newStorage, nil
 }
 
-type StorageInterface interface {
-	AddMetrics(metricsName string, metricsValue models.Metrics) error
-	UpdateMetrics(metricsName string, metricsValue models.Metrics) error
-	GetMetrics(metricsName string) (models.Metrics, error)
-	GetAllMetricsNames() ([]string, error)
-	GetAllMetrics() *[]models.Metrics
-	SaveMetricsInFile(filename string)
-	RestoreMetricsFromFile(filename string)
-}
-
 func (inMemmory *MemStorage) Initialize() error {
 	for _, metricsName := range models.GaugeMetricsNames {
 		val := 0.0
