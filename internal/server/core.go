@@ -71,7 +71,7 @@ func NewServer() (*Server, error) {
 
 	newServer.Config = newServerConfig()
 
-	newStorage, err := store.NewSQLStorage()
+	newStorage, err := store.NewMemStorage()
 	if err != nil {
 		log.Fatalf("error initialize storage in server %s", err.Error())
 	}

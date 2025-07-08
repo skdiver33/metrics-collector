@@ -11,3 +11,7 @@ type StorageInterface interface {
 	SaveMetricsInFile(filename string)
 	RestoreMetricsFromFile(filename string)
 }
+
+type DBInterface interface {
+	PingDB() error
+}

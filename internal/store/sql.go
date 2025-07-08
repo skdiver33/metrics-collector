@@ -65,10 +65,6 @@ func (storage *SQLStorage) InitializeConnection() error {
 	return nil
 }
 
-type DBInterface interface {
-	PingDB() error
-}
-
 func (storage *SQLStorage) CloseConnection() {
 	storage.db.Close()
 }
