@@ -13,20 +13,20 @@ import (
 	"github.com/skdiver33/metrics-collector/models"
 )
 
-type SqlStorage struct {
-	config *SqlStorageConfig
+type SQLStorage struct {
+	config *SQLStorageConfig
 	db     *sql.DB
 }
 
-type SqlStorageConfig struct {
+type SQLStorageConfig struct {
 	DBAddress string
 	//dbUser     string
 	//dbPassword string
 	//dbName     string
 }
 
-func NewSqlStorageConfig() *SqlStorageConfig {
-	storageConfig := SqlStorageConfig{}
+func NewSQLStorageConfig() *SQLStorageConfig {
+	storageConfig := SQLStorageConfig{}
 
 	storageFlags := flag.NewFlagSet("Sql storage config flags", flag.ContinueOnError)
 	storageFlags.StringVar(&storageConfig.DBAddress, "d", "host=192.168.1.45 user=bob password=secret dbname=metrics sslmode=disable", "adress for connect DB. default 192.168.1.45:5432")
@@ -39,9 +39,9 @@ func NewSqlStorageConfig() *SqlStorageConfig {
 	return &storageConfig
 }
 
-func NewSQLStorage() (*SqlStorage, error) {
-	newStorage := SqlStorage{}
-	newStorage.config = NewSqlStorageConfig()
+func NewSQLStorage() (*SQLStorage, error) {
+	newStorage := SQLStorage{}
+	newStorage.config = NewSQLStorageConfig()
 	err := newStorage.InitializeConnection()
 	if err != nil {
 		return nil, err
@@ -49,7 +49,7 @@ func NewSQLStorage() (*SqlStorage, error) {
 	return &newStorage, nil
 }
 
-func (storage *SqlStorage) InitializeConnection() error {
+func (storage *SQLStorage) InitializeConnection() error {
 	//ps := fmt.Sprintf("host=%s user=%s password=%s dbname=%s sslmode=disable",
 	//	storage.config.DBAddress, storage.config.dbUser, storage.config.dbPassword, storage.config.dbName)
 
@@ -69,33 +69,33 @@ type DBInterface interface {
 	PingDB() error
 }
 
-func (storage *SqlStorage) CloseConnection() {
+func (storage *SQLStorage) CloseConnection() {
 	storage.db.Close()
 }
 
-func (storage *SqlStorage) AddMetrics(metricsName string, metricsValue models.Metrics) error {
+func (storage *SQLStorage) AddMetrics(metricsName string, metricsValue models.Metrics) error {
 	return nil
 }
-func (storage *SqlStorage) UpdateMetrics(metricsName string, metricsValue models.Metrics) error {
+func (storage *SQLStorage) UpdateMetrics(metricsName string, metricsValue models.Metrics) error {
 	return nil
 }
-func (storage *SqlStorage) GetMetrics(metricsName string) (models.Metrics, error) {
+func (storage *SQLStorage) GetMetrics(metricsName string) (models.Metrics, error) {
 	return models.Metrics{}, nil
 }
-func (storage *SqlStorage) GetAllMetricsNames() ([]string, error) {
+func (storage *SQLStorage) GetAllMetricsNames() ([]string, error) {
 	return make([]string, 0), nil
 }
-func (storage *SqlStorage) GetAllMetrics() *[]models.Metrics {
+func (storage *SQLStorage) GetAllMetrics() *[]models.Metrics {
 	return nil
 }
-func (storage *SqlStorage) SaveMetricsInFile(filename string) {
+func (storage *SQLStorage) SaveMetricsInFile(filename string) {
 
 }
-func (storage *SqlStorage) RestoreMetricsFromFile(filename string) {
+func (storage *SQLStorage) RestoreMetricsFromFile(filename string) {
 
 }
 
-func (storage *SqlStorage) PingDB() error {
+func (storage *SQLStorage) PingDB() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 	if err := storage.db.PingContext(ctx); err != nil {
