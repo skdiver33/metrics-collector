@@ -135,10 +135,10 @@ func (inMemmory *MemStorage) RestoreMetricsFromFile(filename string) {
 	}
 }
 
-func (storage *MemStorage) PingDB() error {
+func (inMemmory *MemStorage) PingDB() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	if err := storage.StorageSQL.db.PingContext(ctx); err != nil {
+	if err := inMemmory.StorageSQL.db.PingContext(ctx); err != nil {
 		return err
 	}
 	return nil
