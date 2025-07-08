@@ -48,7 +48,6 @@ func (metrics *Metrics) SetMetricsValue(newValue string) error {
 	switch metrics.MType {
 	case Counter:
 		{
-
 			value, err := strconv.Atoi(newValue)
 			if err != nil {
 				return errors.New("wrong metrics type")
@@ -59,7 +58,8 @@ func (metrics *Metrics) SetMetricsValue(newValue string) error {
 				metrics.Delta = &newValue
 				break
 			}
-			*metrics.Delta += int64(value)
+			newDelta := *(metrics.Delta) + int64(value)
+			metrics.Delta = &newDelta
 		}
 	case Gauge:
 		{
