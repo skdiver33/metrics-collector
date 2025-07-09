@@ -122,7 +122,7 @@ func (agent *Agent) UpdateMetrics() error {
 				metrics.Delta = &newValue
 			}
 		}
-		if err := agent.metricStorage.UpdateMetrics(metrics.ID, metrics); err != nil {
+		if err := agent.metricStorage.UpdateMetrics(metrics); err != nil {
 			return err
 		}
 
