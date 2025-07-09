@@ -53,7 +53,7 @@ func (handler *MetricsHandler) SetMetrics(rw http.ResponseWriter, request *http.
 	if err != nil {
 		currentMetrics = models.Metrics{ID: metricsName, MType: metricsType}
 		currentMetrics.SetMetricsValue("0")
-		handler.metricsStorage.AddMetrics(metricsName, currentMetrics)
+		handler.metricsStorage.AddMetrics(currentMetrics)
 	}
 
 	if err := currentMetrics.SetMetricsValue(metricsValue); err != nil {
@@ -61,7 +61,7 @@ func (handler *MetricsHandler) SetMetrics(rw http.ResponseWriter, request *http.
 		http.Error(rw, "", http.StatusBadRequest)
 		return
 	}
-	if err := handler.metricsStorage.UpdateMetrics(metricsName, currentMetrics); err != nil {
+	if err := handler.metricsStorage.UpdateMetrics(currentMetrics); err != nil {
 		log.Print("error update metrics on server")
 		http.Error(rw, "", http.StatusInternalServerError)
 		return
@@ -94,7 +94,7 @@ func (handler *MetricsHandler) SetJSONMetrics(rw http.ResponseWriter, request *h
 	if err != nil {
 		currentMetrics = models.Metrics{ID: receiveMetrics.ID, MType: receiveMetrics.MType}
 		currentMetrics.SetMetricsValue("0")
-		handler.metricsStorage.AddMetrics(receiveMetrics.ID, currentMetrics)
+		handler.metricsStorage.AddMetrics(currentMetrics)
 	}
 
 	newValue := receiveMetrics.GetMetricsValue()
@@ -103,8 +103,8 @@ func (handler *MetricsHandler) SetJSONMetrics(rw http.ResponseWriter, request *h
 		http.Error(rw, "error set up new value in metrics", http.StatusBadRequest)
 		return
 	}
-	if err := handler.metricsStorage.UpdateMetrics(receiveMetrics.ID, currentMetrics); err != nil {
-		log.Print("error set up new value in metrics")
+	if err := handler.metricsStorage.UpdateMetrics(currentMetrics); err != nil {
+		log.Print("error update metrics in storage")
 		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}

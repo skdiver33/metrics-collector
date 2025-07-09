@@ -31,7 +31,7 @@ func (inMemmory *MemStorage) Initialize() error {
 	for _, metricsName := range models.GaugeMetricsNames {
 		val := 0.0
 		metrics := models.Metrics{ID: metricsName, MType: models.Gauge, Value: &val}
-		if err := inMemmory.AddMetrics(metricsName, metrics); err != nil {
+		if err := inMemmory.AddMetrics(metrics); err != nil {
 			log.Println("Error initialize storage.")
 			return err
 		}
@@ -39,7 +39,7 @@ func (inMemmory *MemStorage) Initialize() error {
 	for _, metricsName := range models.CounterMetricsNames {
 		delta := int64(0)
 		metrics := models.Metrics{ID: metricsName, MType: models.Counter, Delta: &delta}
-		if err := inMemmory.AddMetrics(metricsName, metrics); err != nil {
+		if err := inMemmory.AddMetrics(metrics); err != nil {
 			log.Println("Error initialize storage.")
 			return err
 		}
@@ -47,10 +47,10 @@ func (inMemmory *MemStorage) Initialize() error {
 	return nil
 }
 
-func (inMemmory *MemStorage) AddMetrics(metricsName string, metricsValue models.Metrics) error {
+func (inMemmory *MemStorage) AddMetrics(metrics models.Metrics) error {
 	inMemmory.mu.Lock()
 	defer inMemmory.mu.Unlock()
-	inMemmory.Storage[metricsName] = metricsValue
+	inMemmory.Storage[metrics.ID] = metrics
 	return nil
 }
 
@@ -64,10 +64,10 @@ func (inMemmory *MemStorage) GetMetrics(metricsName string) (models.Metrics, err
 	return metrics, nil
 }
 
-func (inMemmory *MemStorage) UpdateMetrics(metricsName string, metricsValue models.Metrics) error {
+func (inMemmory *MemStorage) UpdateMetrics(metricsValue models.Metrics) error {
 	inMemmory.mu.Lock()
 	defer inMemmory.mu.Unlock()
-	inMemmory.Storage[metricsName] = metricsValue
+	inMemmory.Storage[metricsValue.ID] = metricsValue
 	return nil
 }
 
@@ -122,7 +122,7 @@ func (inMemmory *MemStorage) RestoreMetricsFromFile(filename string) {
 		log.Printf("cannot Unmarshal read data. error: %s", err.Error())
 		return
 	}
-	for name, value := range readStorage {
-		inMemmory.UpdateMetrics(name, value)
+	for _, value := range readStorage {
+		inMemmory.UpdateMetrics(value)
 	}
 }

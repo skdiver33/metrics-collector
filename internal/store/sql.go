@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"database/sql"
@@ -44,6 +45,10 @@ func NewSQLStorage(address string) (*SQLStorage, error) {
 	if err != nil {
 		return nil, err
 	}
+	err = newStorage.InitializeDB()
+	if err != nil {
+		return nil, err
+	}
 	return &newStorage, nil
 }
 
@@ -63,19 +68,75 @@ func (storage *SQLStorage) InitializeConnection() error {
 	return nil
 }
 
+func (storage *SQLStorage) InitializeDB() error {
+	createTableString := "CREATE TABLE IF NOT EXISTS metrics (id VARCHAR(100) PRIMARY KEY, type VARCHAR(100) NOT NULL, delta integer NULL, value double precision NULL);"
+	_, err := storage.db.Exec(createTableString)
+	if err != nil {
+		storage.CloseConnection()
+		return err
+	}
+
+	//checkSelectString := "SELECT * from metrics WHERE id=$1"
+	row := storage.db.QueryRow("SELECT id from metrics WHERE id=$1", models.GaugeMetricsNames[3])
+	var id string
+	err = row.Scan(&id)
+	if err != sql.ErrNoRows {
+		return nil
+	}
+
+	for _, metricsName := range models.GaugeMetricsNames {
+		val := 0.0
+		metrics := models.Metrics{ID: metricsName, MType: models.Gauge, Value: &val}
+		if err := storage.AddMetrics(metrics); err != nil {
+			log.Println("Error initialize storage.")
+			storage.CloseConnection()
+			return err
+		}
+	}
+	for _, metricsName := range models.CounterMetricsNames {
+		delta := int64(0)
+		metrics := models.Metrics{ID: metricsName, MType: models.Counter, Delta: &delta}
+		if err := storage.AddMetrics(metrics); err != nil {
+			log.Println("Error initialize storage.")
+			storage.CloseConnection()
+			return err
+		}
+	}
+	return nil
+
+}
+
 func (storage *SQLStorage) CloseConnection() {
 	storage.db.Close()
 }
 
-func (storage *SQLStorage) AddMetrics(metricsName string, metricsValue models.Metrics) error {
+func (storage *SQLStorage) AddMetrics(metrics models.Metrics) error {
+	_, err := storage.db.Exec("INSERT INTO metrics (id, type,delta,value) VALUES ($1, $2,$3,$4)", metrics.ID, metrics.MType, metrics.Delta, metrics.Value)
+	if err != nil {
+		storage.CloseConnection()
+		return err
+	}
+	log.Println("Data inserted successfully!")
 	return nil
 }
-func (storage *SQLStorage) UpdateMetrics(metricsName string, metricsValue models.Metrics) error {
+func (storage *SQLStorage) UpdateMetrics(metrics models.Metrics) error {
+	_, err := storage.db.Exec("UPDATE metrics SET delta = $1,value = $2 WHERE id = $3", metrics.Delta, metrics.Value, metrics.ID)
+	if err != nil {
+		storage.CloseConnection()
+		return err
+	}
 	return nil
 }
 func (storage *SQLStorage) GetMetrics(metricsName string) (models.Metrics, error) {
-	return models.Metrics{}, nil
+	metrics := models.Metrics{}
+	row := storage.db.QueryRow("SELECT * FROM metrics WHERE id=$1", metricsName)
+	err := row.Scan(&metrics.ID, &metrics.MType, &metrics.Delta, &metrics.Value)
+	if err != nil {
+		return metrics, err
+	}
+	return metrics, nil
 }
+
 func (storage *SQLStorage) GetAllMetricsNames() ([]string, error) {
 	return make([]string, 0), nil
 }
