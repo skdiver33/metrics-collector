@@ -16,6 +16,7 @@ type ServerConfig struct {
 	StoreInterval   uint
 	StorageDumpPath string
 	IsDumpRestore   bool
+	SQLDBAddress    string
 }
 
 func newServerConfig() *ServerConfig {
@@ -24,7 +25,8 @@ func newServerConfig() *ServerConfig {
 	serverFlags := flag.NewFlagSet("Server config flags", flag.ContinueOnError)
 	serverFlags.StringVar(&serverConfig.ListenAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
 	serverFlags.UintVar(&serverConfig.StoreInterval, "i", 10, "store interval in seconds. default 300.")
-	serverFlags.StringVar(&serverConfig.StorageDumpPath, "f", "/tmp/storage_dump.json", "path to file for storage dump")
+	serverFlags.StringVar(&serverConfig.StorageDumpPath, "f", "", "path to file for storage dump. Default empty and disable.")
+	serverFlags.StringVar(&serverConfig.SQLDBAddress, "d", "", "DB connection string. Default - empty and disable.")
 	serverFlags.BoolVar(&serverConfig.IsDumpRestore, "r", false, "use dump for restore storage state")
 	serverFlags.Parse(os.Args[1:])
 
@@ -56,6 +58,11 @@ func newServerConfig() *ServerConfig {
 		serverConfig.IsDumpRestore = isRestore
 	}
 
+	envDBAddr, ok := os.LookupEnv("DATABASE_DSN")
+	if ok {
+		serverConfig.SQLDBAddress = envDBAddr
+	}
+
 	return &serverConfig
 }
 
@@ -71,17 +78,26 @@ func NewServer() (*Server, error) {
 
 	newServer.Config = newServerConfig()
 
-	newStorage, err := store.NewMemStorage()
-	if err != nil {
-		log.Fatalf("error initialize storage in server %s", err.Error())
-	}
-	newServer.Storage = newStorage
+	if newServer.Config.SQLDBAddress != "" {
+		newStorage, err := store.NewSQLStorage(newServer.Config.SQLDBAddress)
+		if err != nil {
+			log.Fatalf("error initialize storage in server %s", err.Error())
+		}
+		newServer.Storage = newStorage
 
-	if newServer.Config.IsDumpRestore {
+	} else {
+		newStorage, err := store.NewMemStorage()
+		if err != nil {
+			log.Fatalf("error initialize storage in server %s", err.Error())
+		}
+		newServer.Storage = newStorage
+	}
+
+	if newServer.Config.StorageDumpPath != "" && newServer.Config.IsDumpRestore {
 		newServer.Storage.RestoreMetricsFromFile(newServer.Config.StorageDumpPath)
 	}
 
-	newHandler, err := NewMetricsHandler(newStorage)
+	newHandler, err := NewMetricsHandler(newServer.Storage)
 	if err != nil {
 		return nil, err
 	}

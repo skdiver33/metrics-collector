@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -9,15 +8,13 @@ import (
 	"os"
 	"slices"
 	"sync"
-	"time"
 
 	"github.com/skdiver33/metrics-collector/models"
 )
 
 type MemStorage struct {
-	Storage    map[string]models.Metrics
-	StorageSQL *SQLStorage
-	mu         *sync.Mutex
+	Storage map[string]models.Metrics
+	mu      *sync.Mutex
 }
 
 func NewMemStorage() (*MemStorage, error) {
@@ -27,11 +24,6 @@ func NewMemStorage() (*MemStorage, error) {
 	if err := newStorage.Initialize(); err != nil {
 		return nil, err
 	}
-	newSQLStorage, err := NewSQLStorage()
-	if err != nil {
-		return nil, err
-	}
-	newStorage.StorageSQL = newSQLStorage
 	return &newStorage, nil
 }
 
@@ -133,13 +125,4 @@ func (inMemmory *MemStorage) RestoreMetricsFromFile(filename string) {
 	for name, value := range readStorage {
 		inMemmory.UpdateMetrics(name, value)
 	}
-}
-
-func (inMemmory *MemStorage) PingDB() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
-	if err := inMemmory.StorageSQL.db.PingContext(ctx); err != nil {
-		return err
-	}
-	return nil
 }
