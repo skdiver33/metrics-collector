@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"log"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"github.com/skdiver33/metrics-collector/internal/misc"
 	"github.com/skdiver33/metrics-collector/models"
 )
 
@@ -33,6 +35,24 @@ func NewSQLStorage(address string) (*SQLStorage, error) {
 	if err != nil {
 		return nil, err
 	}
+	for i := 1; i <= 5; i += 2 {
+		err = newStorage.PingDB(context.Background())
+		if err != nil {
+			var TryAgain *misc.RetrialableError
+			if errors.As(err, &TryAgain) {
+				log.Printf("error initialize DB connection. error: %v.\n Attemp after %d seconds", err, i)
+				time.Sleep(time.Duration(i * int(time.Second)))
+				continue
+			}
+			log.Printf("error connect to DB. error: %v", err)
+		}
+		break
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
 	err = newStorage.InitializeDB()
 	if err != nil {
 		return nil, err
@@ -43,7 +63,7 @@ func NewSQLStorage(address string) (*SQLStorage, error) {
 func (storage *SQLStorage) InitializeConnection() error {
 	db, err := sql.Open("pgx", storage.config.DBAddress)
 	if err != nil {
-		return err
+		return misc.NewRetrialableError(err)
 	}
 	storage.db = db
 	return nil
@@ -93,7 +113,7 @@ func (storage *SQLStorage) AddMetrics(ctx context.Context, metrics models.Metric
 		storage.CloseConnection()
 		return err
 	}
-	log.Println("Data inserted successfully!")
+	//	log.Println("Data inserted successfully!")
 	return nil
 }
 func (storage *SQLStorage) UpdateMetrics(ctx context.Context, metrics models.Metrics) error {
@@ -189,7 +209,7 @@ func (storage *SQLStorage) PingDB(ctx context.Context) error {
 	ctxWithTO, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
 	if err := storage.db.PingContext(ctxWithTO); err != nil {
-		return err
+		return misc.NewRetrialableError(err)
 	}
 	return nil
 }

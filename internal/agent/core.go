@@ -17,7 +17,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/skdiver33/metrics-collector/internal/misc"
 	"github.com/skdiver33/metrics-collector/internal/store"
+
 	"github.com/skdiver33/metrics-collector/models"
 )
 
@@ -141,7 +143,7 @@ func (agent *Agent) SendMetrics() error {
 
 		response, err := client.Post(fmt.Sprintf(requestPattern, agent.config.serverAddress, metrics.MType, metrics.ID, metrics.GetMetricsValue()), "Content-Type: text/plain", nil)
 		if err != nil {
-			return fmt.Errorf("error send metrics %s. error:  %s", metrics.ID, err.Error())
+			return fmt.Errorf("error send metrics %s. error:  %w", metrics.ID, err)
 		}
 		defer response.Body.Close()
 		if response.StatusCode != http.StatusOK {
@@ -161,7 +163,7 @@ func (agent *Agent) SendJSONMetrics(useCompression bool) error {
 
 		buf, err := json.Marshal(metrics)
 		if err != nil {
-			return fmt.Errorf("error marshal metrics to JSON. error: %s", err.Error())
+			return fmt.Errorf("error marshal metrics to JSON. error: %w", err)
 		}
 
 		var requestBody bytes.Buffer
@@ -169,18 +171,18 @@ func (agent *Agent) SendJSONMetrics(useCompression bool) error {
 		if useCompression {
 			zw := gzip.NewWriter(&requestBody)
 			if _, err := zw.Write(buf); err != nil {
-				return fmt.Errorf("error compress metrics %s. error: %s", metrics.ID, err.Error())
+				return fmt.Errorf("error compress metrics %s. error: %w", metrics.ID, err)
 
 			}
 			if err := zw.Close(); err != nil {
-				return fmt.Errorf("error close zip writer. error: %s", err.Error())
+				return fmt.Errorf("error close zip writer. error: %w", err)
 			}
 		} else {
 			requestBody.Write(buf)
 		}
 		req, err := http.NewRequest(http.MethodPost, "http://"+agent.config.serverAddress+"/update/", &requestBody)
 		if err != nil {
-			return fmt.Errorf("error! create request. error: %s", err.Error())
+			return fmt.Errorf("error! create request. error: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
 		if useCompression {
@@ -189,7 +191,7 @@ func (agent *Agent) SendJSONMetrics(useCompression bool) error {
 		response, err := client.Do(req)
 
 		if err != nil {
-			return fmt.Errorf("error send metrics %s error %s", metrics.ID, err.Error())
+			return misc.NewRetrialableError(err)
 		}
 		defer response.Body.Close()
 
@@ -210,28 +212,28 @@ func (agent *Agent) SendBunchMetrics() error {
 
 	buf, err := json.Marshal(allMetrics)
 	if err != nil {
-		return fmt.Errorf("error marshal all metrics to JSON. error: %s", err.Error())
+		return fmt.Errorf("error marshal all metrics to JSON. error: %w", err)
 	}
 
 	var requestBody bytes.Buffer
 	zw := gzip.NewWriter(&requestBody)
 	if _, err := zw.Write(buf); err != nil {
-		return fmt.Errorf("error compress all metrics. error: %s", err.Error())
+		return fmt.Errorf("error compress all metrics. error: %w", err)
 	}
 	if err := zw.Close(); err != nil {
-		return fmt.Errorf("error close zip writer. error: %s", err.Error())
+		return fmt.Errorf("error close zip writer. error: %w", err)
 	}
 
 	req, err := http.NewRequest(http.MethodPost, "http://"+agent.config.serverAddress+"/updates/", &requestBody)
 	if err != nil {
-		return fmt.Errorf("error! create request. error: %s", err.Error())
+		return fmt.Errorf("error! create request. error: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Content-Encoding", "gzip")
 
 	response, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("error send bunch metrics. error %s", err.Error())
+		return misc.NewRetrialableError(err)
 	}
 	defer response.Body.Close()
 
@@ -273,8 +275,18 @@ func (agent *Agent) MainLoop() {
 			case v := <-done:
 				ch <- v
 			case <-reportTicker.C:
-				if err := agent.SendBunchMetrics(); err != nil {
-					log.Printf("error send metrics. error: %v", err)
+				for i := 1; i <= 5; i += 2 {
+					err := agent.SendBunchMetrics()
+					if err != nil {
+						var TryAgain *misc.RetrialableError
+						if errors.As(err, &TryAgain) {
+							log.Printf("error send metrics. error: %v.\n Attemp after %d seconds", err, i)
+							time.Sleep(time.Duration(i * int(time.Second)))
+							continue
+						}
+						log.Printf("error send metrics. Internal agent error. Not network. error: %v", err)
+					}
+					break
 				}
 			}
 		}
