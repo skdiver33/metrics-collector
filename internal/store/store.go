@@ -73,18 +73,22 @@ func (inMemmory *MemStorage) UpdateMetrics(ctx context.Context, metricsValue mod
 	return nil
 }
 
-// func (inMemmory *MemStorage) GetAllMetricsNames() ([]string, error) {
-// 	inMemmory.mu.Lock()
-// 	defer inMemmory.mu.Unlock()
-// 	allMetricsNames := make([]string, 0)
-// 	for metricsName := range inMemmory.Storage {
-// 		allMetricsNames = append(allMetricsNames, metricsName)
-// 	}
-// 	if len(allMetricsNames) == 0 {
-// 		return allMetricsNames, errors.New("empty storage! initialize before use")
-// 	}
-// 	return allMetricsNames, nil
-// }
+func (inMemmory *MemStorage) UpdateAllMetrics(ctx context.Context, allMetrics *[]models.Metrics) error {
+	inMemmory.mu.Lock()
+	defer inMemmory.mu.Unlock()
+	for _, metrics := range *allMetrics {
+		newValue := metrics.GetMetricsValue()
+		currentMetrics, ok := inMemmory.Storage[metrics.ID]
+		if !ok {
+			log.Print("error get metrics from map")
+			return nil
+		}
+		currentMetrics.SetMetricsValue(newValue)
+		inMemmory.Storage[metrics.ID] = currentMetrics
+	}
+
+	return nil
+}
 
 func (inMemmory *MemStorage) GetAllMetrics(ctx context.Context) *[]models.Metrics {
 	inMemmory.mu.Lock()

@@ -176,6 +176,41 @@ func (handler *MetricsHandler) GetAllMetrics(rw http.ResponseWriter, request *ht
 	rw.Write([]byte(answer))
 }
 
+func (handler *MetricsHandler) PingDB(rw http.ResponseWriter, request *http.Request) {
+	switch value := handler.metricsStorage.(type) {
+	case store.DBInterface:
+		{
+			err := value.PingDB(request.Context())
+			if err != nil {
+				log.Print("DB not connected")
+				http.Error(rw, "", http.StatusInternalServerError)
+			}
+			rw.WriteHeader(http.StatusOK)
+			return
+		}
+	default:
+		http.Error(rw, "", http.StatusBadRequest)
+
+	}
+}
+
+func (handler *MetricsHandler) SetBunchMetrics(rw http.ResponseWriter, request *http.Request) {
+
+	var receiveMetrics []models.Metrics
+	if err := json.NewDecoder(request.Body).Decode(&receiveMetrics); err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := handler.metricsStorage.UpdateAllMetrics(request.Context(), &receiveMetrics); err != nil {
+		log.Print("error update all metrics in storage")
+		http.Error(rw, "", http.StatusBadRequest)
+	}
+
+	rw.Header().Set("Content-type", "text/plain")
+	rw.WriteHeader(http.StatusOK)
+}
+
 //************************* Logger Handler *********************************************
 
 type (
@@ -277,20 +312,4 @@ func (handler *MetricsHandler) GzipHandle(next http.Handler) http.Handler {
 	})
 }
 
-func (handler *MetricsHandler) PingDB(rw http.ResponseWriter, request *http.Request) {
-	switch value := handler.metricsStorage.(type) {
-	case store.DBInterface:
-		{
-			err := value.PingDB(request.Context())
-			if err != nil {
-				log.Print("DB not connected")
-				http.Error(rw, "", http.StatusInternalServerError)
-			}
-			rw.WriteHeader(http.StatusOK)
-			return
-		}
-	default:
-		http.Error(rw, "", http.StatusBadRequest)
-
-	}
-}
+//***********************************************************************************

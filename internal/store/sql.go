@@ -19,22 +19,10 @@ type SQLStorage struct {
 
 type SQLStorageConfig struct {
 	DBAddress string
-	//dbUser     string
-	//dbPassword string
-	//dbName     string
 }
 
 func NewSQLStorageConfig(address string) *SQLStorageConfig {
 	storageConfig := SQLStorageConfig{DBAddress: address}
-
-	// storageFlags := flag.NewFlagSet("Sql storage config flags", flag.ContinueOnError)
-	// storageFlags.StringVar(&storageConfig.DBAddress, "d", "", "adress for connect DB. default 192.168.1.45:5432")
-	// storageFlags.Parse(os.Args[1:])
-
-	// envDBAddr, ok := os.LookupEnv("DATABASE_DSN")
-	// if ok {
-	// 	storageConfig.DBAddress = envDBAddr
-	// }
 	return &storageConfig
 }
 
@@ -53,18 +41,11 @@ func NewSQLStorage(address string) (*SQLStorage, error) {
 }
 
 func (storage *SQLStorage) InitializeConnection() error {
-	//ps := fmt.Sprintf("host=%s user=%s password=%s dbname=%s sslmode=disable",
-	//	storage.config.DBAddress, storage.config.dbUser, storage.config.dbPassword, storage.config.dbName)
-
 	db, err := sql.Open("pgx", storage.config.DBAddress)
 	if err != nil {
 		return err
 	}
 	storage.db = db
-	// err = storage.PingDB()
-	// if err != nil {
-	// 	return err
-	// }
 	return nil
 }
 
@@ -75,15 +56,6 @@ func (storage *SQLStorage) InitializeDB() error {
 		storage.CloseConnection()
 		return err
 	}
-
-	//checkSelectString := "SELECT * from metrics WHERE id=$1"
-
-	// row := storage.db.QueryRow("SELECT id from metrics WHERE id=$1", models.GaugeMetricsNames[3])
-	// var id string
-	// err = row.Scan(&id)
-	// if err != sql.ErrNoRows {
-	// 	return nil
-	// }
 
 	baseCtx := context.Background()
 
@@ -146,9 +118,6 @@ func (storage *SQLStorage) GetMetrics(ctx context.Context, metricsName string) (
 	return metrics, nil
 }
 
-//	func (storage *SQLStorage) GetAllMetricsNames() ([]string, error) {
-//		return make([]string, 0), nil
-//	}
 func (storage *SQLStorage) GetAllMetrics(ctx context.Context) *[]models.Metrics {
 	ctxWithTO, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -177,6 +146,37 @@ func (storage *SQLStorage) GetAllMetrics(ctx context.Context) *[]models.Metrics 
 	}
 
 	return &result
+}
+
+func (storage *SQLStorage) UpdateAllMetrics(ctx context.Context, allMetrics *[]models.Metrics) error {
+	ctxWithTO, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	tx, err := storage.db.Begin()
+	if err != nil {
+		log.Print("error create transaction")
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctxWithTO, "INSERT INTO metrics (id, type,delta,value) VALUES ($1, $2,$3,$4) ON CONFLICT (id) DO UPDATE SET delta=(SELECT delta FROM metrics WHERE id = $1)+$3,value=$4")
+	if err != nil {
+		log.Print("error prepere update statement")
+		return err
+	}
+
+	for _, metrics := range *allMetrics {
+		if _, err := stmt.ExecContext(ctxWithTO, metrics.ID, metrics.MType, metrics.Delta, metrics.Value); err != nil {
+			log.Print("Error insert update request in statement")
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Print("error commit update transaction")
+		return err
+	}
+
+	return nil
 }
 func (storage *SQLStorage) CreateDBDump(ctx context.Context, filename string) {
 

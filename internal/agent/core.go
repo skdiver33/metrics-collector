@@ -201,6 +201,47 @@ func (agent *Agent) SendJSONMetrics(useCompression bool) error {
 	return nil
 }
 
+func (agent *Agent) SendBunchMetrics() error {
+
+	tr := &http.Transport{}
+	client := &http.Client{Transport: tr}
+
+	allMetrics := agent.metricStorage.GetAllMetrics(context.Background())
+
+	buf, err := json.Marshal(allMetrics)
+	if err != nil {
+		return fmt.Errorf("error marshal all metrics to JSON. error: %s", err.Error())
+	}
+
+	var requestBody bytes.Buffer
+	zw := gzip.NewWriter(&requestBody)
+	if _, err := zw.Write(buf); err != nil {
+		return fmt.Errorf("error compress all metrics. error: %s", err.Error())
+	}
+	if err := zw.Close(); err != nil {
+		return fmt.Errorf("error close zip writer. error: %s", err.Error())
+	}
+
+	req, err := http.NewRequest(http.MethodPost, "http://"+agent.config.serverAddress+"/updates", &requestBody)
+	if err != nil {
+		return fmt.Errorf("error! create request. error: %s", err.Error())
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
+
+	response, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("error send bunch metrics. error %s", err.Error())
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("error update all metrics on server. Response code %d ", response.StatusCode)
+	}
+
+	return nil
+}
+
 func (agent *Agent) MainLoop() {
 
 	poolTicker := time.NewTicker(agent.config.pollInterval)
@@ -232,7 +273,7 @@ func (agent *Agent) MainLoop() {
 			case v := <-done:
 				ch <- v
 			case <-reportTicker.C:
-				if err := agent.SendJSONMetrics(false); err != nil {
+				if err := agent.SendBunchMetrics(); err != nil {
 					log.Printf("error send metrics. error: %v", err)
 				}
 			}

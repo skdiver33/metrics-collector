@@ -10,8 +10,8 @@ type StorageInterface interface {
 	AddMetrics(ctx context.Context, metricsValue models.Metrics) error
 	UpdateMetrics(ctx context.Context, metricsValue models.Metrics) error
 	GetMetrics(ctx context.Context, metricsName string) (models.Metrics, error)
-	//	GetAllMetricsNames() ([]string, error)
 	GetAllMetrics(ctx context.Context) *[]models.Metrics
+	UpdateAllMetrics(ctx context.Context, allMetrics *[]models.Metrics) error
 	CreateDBDump(ctx context.Context, filename string)
 	RestoreDBDump(ctx context.Context, filename string)
 }
