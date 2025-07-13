@@ -273,7 +273,7 @@ func (agent *Agent) MainLoop() {
 			case v := <-done:
 				ch <- v
 			case <-reportTicker.C:
-				if err := agent.SendBunchMetrics(); err != nil {
+				if err := agent.SendJSONMetrics(false); err != nil {
 					log.Printf("error send metrics. error: %v", err)
 				}
 			}
