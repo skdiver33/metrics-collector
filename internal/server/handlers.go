@@ -203,7 +203,7 @@ func (handler *MetricsHandler) SetBunchMetrics(rw http.ResponseWriter, request *
 	}
 
 	if err := handler.metricsStorage.UpdateAllMetrics(request.Context(), &receiveMetrics); err != nil {
-		log.Print("error update all metrics in storage")
+		log.Printf("error update all metrics in storage %s", err.Error())
 		http.Error(rw, "", http.StatusBadRequest)
 	}
 

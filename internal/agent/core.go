@@ -222,7 +222,7 @@ func (agent *Agent) SendBunchMetrics() error {
 		return fmt.Errorf("error close zip writer. error: %s", err.Error())
 	}
 
-	req, err := http.NewRequest(http.MethodPost, "http://"+agent.config.serverAddress+"/updates", &requestBody)
+	req, err := http.NewRequest(http.MethodPost, "http://"+agent.config.serverAddress+"/updates/", &requestBody)
 	if err != nil {
 		return fmt.Errorf("error! create request. error: %s", err.Error())
 	}
@@ -273,7 +273,7 @@ func (agent *Agent) MainLoop() {
 			case v := <-done:
 				ch <- v
 			case <-reportTicker.C:
-				if err := agent.SendJSONMetrics(false); err != nil {
+				if err := agent.SendBunchMetrics(); err != nil {
 					log.Printf("error send metrics. error: %v", err)
 				}
 			}

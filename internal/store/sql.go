@@ -50,7 +50,7 @@ func (storage *SQLStorage) InitializeConnection() error {
 }
 
 func (storage *SQLStorage) InitializeDB() error {
-	createTableString := "CREATE TABLE IF NOT EXISTS metrics (id VARCHAR(100) PRIMARY KEY, type VARCHAR(100) NOT NULL, delta integer NULL, value double precision NULL);"
+	createTableString := "CREATE TABLE IF NOT EXISTS metrics (id VARCHAR(100) PRIMARY KEY, type VARCHAR(100) NOT NULL, delta bigint NULL, value double precision NULL);"
 	_, err := storage.db.Exec(createTableString)
 	if err != nil {
 		storage.CloseConnection()
