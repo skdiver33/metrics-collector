@@ -109,7 +109,7 @@ func NewServer() (*Server, error) {
 	newRouter.Route("/", func(r chi.Router) {
 		r.Get("/", newHandler.GetAllMetrics)
 		r.Get("/ping", newHandler.PingDB)
-		r.Post("/updates/", newHandler.SetBunchMetrics)
+		r.Post("/updates", newHandler.SetBunchMetrics)
 		r.Route("/value", func(r chi.Router) {
 			r.Post("/", newHandler.GetJSONMetrics)
 			r.Get("/{metricsType}/{metricsName}", newHandler.GetMetrics)
