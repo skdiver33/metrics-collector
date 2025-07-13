@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -85,8 +86,7 @@ func (agent *Agent) UpdateMetrics() error {
 	memStat := runtime.MemStats{}
 	runtime.ReadMemStats(&memStat)
 	value := reflect.ValueOf(memStat)
-
-	allMetrics := agent.metricStorage.GetAllMetrics()
+	allMetrics := agent.metricStorage.GetAllMetrics(context.Background())
 
 	for _, metrics := range *allMetrics {
 
@@ -122,7 +122,7 @@ func (agent *Agent) UpdateMetrics() error {
 				metrics.Delta = &newValue
 			}
 		}
-		if err := agent.metricStorage.UpdateMetrics(metrics); err != nil {
+		if err := agent.metricStorage.UpdateMetrics(context.Background(), metrics); err != nil {
 			return err
 		}
 
@@ -136,7 +136,7 @@ func (agent *Agent) SendMetrics() error {
 	tr := &http.Transport{}
 	client := &http.Client{Transport: tr}
 
-	allMetrics := agent.metricStorage.GetAllMetrics()
+	allMetrics := agent.metricStorage.GetAllMetrics(context.Background())
 	for _, metrics := range *allMetrics {
 
 		response, err := client.Post(fmt.Sprintf(requestPattern, agent.config.serverAddress, metrics.MType, metrics.ID, metrics.GetMetricsValue()), "Content-Type: text/plain", nil)
@@ -156,7 +156,7 @@ func (agent *Agent) SendJSONMetrics(useCompression bool) error {
 	tr := &http.Transport{}
 	client := &http.Client{Transport: tr}
 
-	allMetrics := agent.metricStorage.GetAllMetrics()
+	allMetrics := agent.metricStorage.GetAllMetrics(context.Background())
 	for _, metrics := range *allMetrics {
 
 		buf, err := json.Marshal(metrics)

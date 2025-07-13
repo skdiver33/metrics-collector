@@ -49,11 +49,11 @@ func (handler *MetricsHandler) SetMetrics(rw http.ResponseWriter, request *http.
 		return
 	}
 
-	currentMetrics, err := handler.metricsStorage.GetMetrics(metricsName)
+	currentMetrics, err := handler.metricsStorage.GetMetrics(request.Context(), metricsName)
 	if err != nil {
 		currentMetrics = models.Metrics{ID: metricsName, MType: metricsType}
 		currentMetrics.SetMetricsValue("0")
-		handler.metricsStorage.AddMetrics(currentMetrics)
+		handler.metricsStorage.AddMetrics(request.Context(), currentMetrics)
 	}
 
 	if err := currentMetrics.SetMetricsValue(metricsValue); err != nil {
@@ -61,7 +61,7 @@ func (handler *MetricsHandler) SetMetrics(rw http.ResponseWriter, request *http.
 		http.Error(rw, "", http.StatusBadRequest)
 		return
 	}
-	if err := handler.metricsStorage.UpdateMetrics(currentMetrics); err != nil {
+	if err := handler.metricsStorage.UpdateMetrics(request.Context(), currentMetrics); err != nil {
 		log.Print("error update metrics on server")
 		http.Error(rw, "", http.StatusInternalServerError)
 		return
@@ -90,11 +90,11 @@ func (handler *MetricsHandler) SetJSONMetrics(rw http.ResponseWriter, request *h
 		return
 	}
 
-	currentMetrics, err := handler.metricsStorage.GetMetrics(receiveMetrics.ID)
+	currentMetrics, err := handler.metricsStorage.GetMetrics(request.Context(), receiveMetrics.ID)
 	if err != nil {
 		currentMetrics = models.Metrics{ID: receiveMetrics.ID, MType: receiveMetrics.MType}
 		currentMetrics.SetMetricsValue("0")
-		handler.metricsStorage.AddMetrics(currentMetrics)
+		handler.metricsStorage.AddMetrics(request.Context(), currentMetrics)
 	}
 
 	newValue := receiveMetrics.GetMetricsValue()
@@ -103,7 +103,7 @@ func (handler *MetricsHandler) SetJSONMetrics(rw http.ResponseWriter, request *h
 		http.Error(rw, "error set up new value in metrics", http.StatusBadRequest)
 		return
 	}
-	if err := handler.metricsStorage.UpdateMetrics(currentMetrics); err != nil {
+	if err := handler.metricsStorage.UpdateMetrics(request.Context(), currentMetrics); err != nil {
 		log.Print("error update metrics in storage")
 		http.Error(rw, "", http.StatusInternalServerError)
 		return
@@ -121,7 +121,7 @@ func (handler *MetricsHandler) SetJSONMetrics(rw http.ResponseWriter, request *h
 
 func (handler *MetricsHandler) GetMetrics(rw http.ResponseWriter, request *http.Request) {
 	metricsName := chi.URLParam(request, "metricsName")
-	metrics, err := handler.metricsStorage.GetMetrics(metricsName)
+	metrics, err := handler.metricsStorage.GetMetrics(request.Context(), metricsName)
 	if err != nil {
 		log.Print("error get metrics from storage")
 		http.Error(rw, "error get metrics from storage", http.StatusNotFound)
@@ -140,7 +140,7 @@ func (handler *MetricsHandler) GetJSONMetrics(rw http.ResponseWriter, request *h
 		return
 	}
 
-	response, err := handler.metricsStorage.GetMetrics(receiveMetrics.ID)
+	response, err := handler.metricsStorage.GetMetrics(request.Context(), receiveMetrics.ID)
 	if err != nil {
 		log.Print("error get metrics from storage")
 		http.Error(rw, "error get metrics from storage", http.StatusNotFound)
@@ -160,14 +160,15 @@ func (handler *MetricsHandler) GetJSONMetrics(rw http.ResponseWriter, request *h
 
 func (handler *MetricsHandler) GetAllMetrics(rw http.ResponseWriter, request *http.Request) {
 	answer := "<!DOCTYPE html>\n<html>\n<head>\n<title> Known metrics </title>\n</head>\n<body\n>"
-	metricsNames, err := handler.metricsStorage.GetAllMetricsNames()
-	if err != nil {
-		http.Error(rw, "error get metrics name from storage", http.StatusInternalServerError)
+	metrics := handler.metricsStorage.GetAllMetrics(request.Context())
+	if metrics == nil {
+		log.Print("error get metrics form storage in GetAllMetrics")
+		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}
-	for _, name := range metricsNames {
-		metrics, _ := handler.metricsStorage.GetMetrics(name)
-		answer = fmt.Sprintf("<p>%s %s %s %s </p>\n", answer, name, metrics.MType, metrics.GetMetricsValue())
+
+	for _, curMetr := range *metrics {
+		answer = fmt.Sprintf("<p>%s %s %s %s </p>\n", answer, curMetr.ID, curMetr.MType, curMetr.GetMetricsValue())
 	}
 	answer += "</body>\n</html>"
 
@@ -280,7 +281,7 @@ func (handler *MetricsHandler) PingDB(rw http.ResponseWriter, request *http.Requ
 	switch value := handler.metricsStorage.(type) {
 	case store.DBInterface:
 		{
-			err := value.PingDB()
+			err := value.PingDB(request.Context())
 			if err != nil {
 				log.Print("DB not connected")
 				http.Error(rw, "", http.StatusInternalServerError)
