@@ -275,19 +275,12 @@ func (agent *Agent) MainLoop() {
 			case v := <-done:
 				ch <- v
 			case <-reportTicker.C:
-				for i := 1; i <= 5; i += 2 {
-					err := agent.SendBunchMetrics()
-					if err != nil {
-						var TryAgain *misc.RetrialableError
-						if errors.As(err, &TryAgain) {
-							log.Printf("error send metrics. error: %v.\n Attemp after %d seconds", err, i)
-							time.Sleep(time.Duration(i * int(time.Second)))
-							continue
-						}
-						log.Printf("error send metrics. Internal agent error. Not network. error: %v", err)
-					}
-					break
+				err := misc.RetriableErrorHandler(agent.SendBunchMetrics)
+				if err != nil {
+					log.Println("error send data to server. agent down.")
+					ch <- false
 				}
+
 			}
 		}
 

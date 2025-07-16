@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"log"
 	"time"
 
@@ -35,23 +34,6 @@ func NewSQLStorage(address string) (*SQLStorage, error) {
 	if err != nil {
 		return nil, err
 	}
-	for i := 1; i <= 5; i += 2 {
-		err = newStorage.PingDB(context.Background())
-		if err != nil {
-			var TryAgain *misc.RetrialableError
-			if errors.As(err, &TryAgain) {
-				log.Printf("error initialize DB connection. error: %v.\n Attemp after %d seconds", err, i)
-				time.Sleep(time.Duration(i * int(time.Second)))
-				continue
-			}
-			log.Printf("error connect to DB. error: %v", err)
-		}
-		break
-	}
-
-	if err != nil {
-		return nil, err
-	}
 
 	err = newStorage.InitializeDB()
 	if err != nil {
@@ -63,7 +45,7 @@ func NewSQLStorage(address string) (*SQLStorage, error) {
 func (storage *SQLStorage) InitializeConnection() error {
 	db, err := sql.Open("pgx", storage.config.DBAddress)
 	if err != nil {
-		return misc.NewRetrialableError(err)
+		return err
 	}
 	storage.db = db
 	return nil
@@ -71,7 +53,13 @@ func (storage *SQLStorage) InitializeConnection() error {
 
 func (storage *SQLStorage) InitializeDB() error {
 	createTableString := "CREATE TABLE IF NOT EXISTS metrics (id VARCHAR(100) PRIMARY KEY, type VARCHAR(100) NOT NULL, delta bigint NULL, value double precision NULL);"
-	_, err := storage.db.Exec(createTableString)
+	requestFunc := func() error {
+		_, err := storage.db.Exec(createTableString)
+		return err
+	}
+
+	err := misc.RetriableErrorHandler(requestFunc)
+
 	if err != nil {
 		storage.CloseConnection()
 		return err
@@ -83,7 +71,7 @@ func (storage *SQLStorage) InitializeDB() error {
 		val := 0.0
 		metrics := models.Metrics{ID: metricsName, MType: models.Gauge, Value: &val}
 		if err := storage.AddMetrics(baseCtx, metrics); err != nil {
-			log.Println("Error initialize storage.")
+			log.Println("Error initialize storage. Cannot add metrics in DB.")
 			storage.CloseConnection()
 			return err
 		}
@@ -92,7 +80,7 @@ func (storage *SQLStorage) InitializeDB() error {
 		delta := int64(0)
 		metrics := models.Metrics{ID: metricsName, MType: models.Counter, Delta: &delta}
 		if err := storage.AddMetrics(baseCtx, metrics); err != nil {
-			log.Println("Error initialize storage.")
+			log.Println("Error initialize storage. Cannot add metrics in DB.")
 			storage.CloseConnection()
 			return err
 		}
@@ -108,18 +96,26 @@ func (storage *SQLStorage) CloseConnection() {
 func (storage *SQLStorage) AddMetrics(ctx context.Context, metrics models.Metrics) error {
 	ctxWithTO, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	_, err := storage.db.ExecContext(ctxWithTO, "INSERT INTO metrics (id, type,delta,value) VALUES ($1, $2,$3,$4) ON CONFLICT DO NOTHING", metrics.ID, metrics.MType, metrics.Delta, metrics.Value)
+	retryFunc := func() error {
+		_, err := storage.db.ExecContext(ctxWithTO, "INSERT INTO metrics (id, type,delta,value) VALUES ($1, $2,$3,$4) ON CONFLICT DO NOTHING", metrics.ID, metrics.MType, metrics.Delta, metrics.Value)
+		return err
+	}
+	err := misc.RetriableErrorHandler(retryFunc)
+
 	if err != nil {
 		storage.CloseConnection()
 		return err
 	}
-	//	log.Println("Data inserted successfully!")
 	return nil
 }
 func (storage *SQLStorage) UpdateMetrics(ctx context.Context, metrics models.Metrics) error {
 	ctxWithTO, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	_, err := storage.db.ExecContext(ctxWithTO, "UPDATE metrics SET delta = $1,value = $2 WHERE id = $3", metrics.Delta, metrics.Value, metrics.ID)
+	retryFunc := func() error {
+		_, err := storage.db.ExecContext(ctxWithTO, "UPDATE metrics SET delta = $1,value = $2 WHERE id = $3", metrics.Delta, metrics.Value, metrics.ID)
+		return err
+	}
+	err := misc.RetriableErrorHandler(retryFunc)
 	if err != nil {
 		storage.CloseConnection()
 		return err
