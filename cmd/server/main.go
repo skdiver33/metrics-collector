@@ -13,12 +13,14 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-	go func() {
-		for {
-			time.Sleep(time.Duration(server.Config.StoreInterval) * time.Second)
-			server.WriteStorageDump()
-		}
-	}()
+	if server.Config.StorageDumpPath != "" {
+		go func() {
+			for {
+				time.Sleep(time.Duration(server.Config.StoreInterval) * time.Second)
+				server.WriteStorageDump()
+			}
+		}()
+	}
 
 	if err := http.ListenAndServe(server.Config.ListenAddress, server.HandlersRouter); err != nil {
 		panic(err.Error())

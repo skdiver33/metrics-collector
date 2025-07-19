@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"flag"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -15,6 +17,7 @@ type ServerConfig struct {
 	StoreInterval   uint
 	StorageDumpPath string
 	IsDumpRestore   bool
+	SQLDBAddress    string
 }
 
 func newServerConfig() *ServerConfig {
@@ -23,7 +26,9 @@ func newServerConfig() *ServerConfig {
 	serverFlags := flag.NewFlagSet("Server config flags", flag.ContinueOnError)
 	serverFlags.StringVar(&serverConfig.ListenAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
 	serverFlags.UintVar(&serverConfig.StoreInterval, "i", 10, "store interval in seconds. default 300.")
-	serverFlags.StringVar(&serverConfig.StorageDumpPath, "f", "/tmp/storage_dump.json", "path to file for storage dump")
+	serverFlags.StringVar(&serverConfig.StorageDumpPath, "f", "", "path to file for storage dump. Default empty and disable.")
+	serverFlags.StringVar(&serverConfig.SQLDBAddress, "d", "", "DB connection string. Default - empty and disable.")
+	//serverFlags.StringVar(&serverConfig.SQLDBAddress, "d", "host=192.168.1.47 user=bob password=secret dbname=metrics sslmode=disable", "DB connection string. Default - empty and disable.")
 	serverFlags.BoolVar(&serverConfig.IsDumpRestore, "r", false, "use dump for restore storage state")
 	serverFlags.Parse(os.Args[1:])
 
@@ -55,6 +60,11 @@ func newServerConfig() *ServerConfig {
 		serverConfig.IsDumpRestore = isRestore
 	}
 
+	envDBAddr, ok := os.LookupEnv("DATABASE_DSN")
+	if ok {
+		serverConfig.SQLDBAddress = envDBAddr
+	}
+
 	return &serverConfig
 }
 
@@ -70,17 +80,30 @@ func NewServer() (*Server, error) {
 
 	newServer.Config = newServerConfig()
 
-	newStorage, err := store.NewMemStorage()
-	if err != nil {
-		panic("error initialize storage in server")
-	}
-	newServer.Storage = newStorage
+	if newServer.Config.SQLDBAddress != "" {
+		newStorage, err := store.NewSQLStorage(newServer.Config.SQLDBAddress)
+		if err != nil {
+			log.Fatalf("error initialize storage in server %s", err.Error())
+		}
+		newServer.Storage = newStorage
 
-	if newServer.Config.IsDumpRestore {
-		newServer.Storage.RestoreMetricsFromFile(newServer.Config.StorageDumpPath)
+	} else {
+		newStorage, err := store.NewMemStorage()
+		if err != nil {
+			log.Fatalf("error initialize storage in server %s", err.Error())
+		}
+		newServer.Storage = newStorage
 	}
 
-	newHandler, err := NewMetricsHandler(newStorage)
+	if newServer.Config.StorageDumpPath != "" && newServer.Config.IsDumpRestore {
+		newServer.Storage.RestoreDBDump(context.Background(), newServer.Config.StorageDumpPath)
+	}
+
+	if newServer.Storage == nil {
+		log.Fatalf("fatal error. service storage nil, after creation")
+	}
+
+	newHandler, err := NewMetricsHandler(newServer.Storage)
 	if err != nil {
 		return nil, err
 	}
@@ -89,6 +112,8 @@ func NewServer() (*Server, error) {
 	newRouter.Use(newHandler.GzipHandle)
 	newRouter.Route("/", func(r chi.Router) {
 		r.Get("/", newHandler.GetAllMetrics)
+		r.Get("/ping", newHandler.PingDB)
+		r.Post("/updates/", newHandler.SetBunchMetrics)
 		r.Route("/value", func(r chi.Router) {
 			r.Post("/", newHandler.GetJSONMetrics)
 			r.Get("/{metricsType}/{metricsName}", newHandler.GetMetrics)
@@ -104,5 +129,5 @@ func NewServer() (*Server, error) {
 }
 
 func (server *Server) WriteStorageDump() {
-	server.Storage.SaveMetricsInFile(server.Config.StorageDumpPath)
+	server.Storage.CreateDBDump(context.Background(), server.Config.StorageDumpPath)
 }

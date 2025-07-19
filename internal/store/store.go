@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -27,21 +28,12 @@ func NewMemStorage() (*MemStorage, error) {
 	return &newStorage, nil
 }
 
-type StorageInterface interface {
-	AddMetrics(metricsName string, metricsValue models.Metrics) error
-	UpdateMetrics(metricsName string, metricsValue models.Metrics) error
-	GetMetrics(metricsName string) (models.Metrics, error)
-	GetAllMetricsNames() ([]string, error)
-	GetAllMetrics() *[]models.Metrics
-	SaveMetricsInFile(filename string)
-	RestoreMetricsFromFile(filename string)
-}
-
 func (inMemmory *MemStorage) Initialize() error {
+	baseCtx := context.Background()
 	for _, metricsName := range models.GaugeMetricsNames {
 		val := 0.0
 		metrics := models.Metrics{ID: metricsName, MType: models.Gauge, Value: &val}
-		if err := inMemmory.AddMetrics(metricsName, metrics); err != nil {
+		if err := inMemmory.AddMetrics(baseCtx, metrics); err != nil {
 			log.Println("Error initialize storage.")
 			return err
 		}
@@ -49,7 +41,7 @@ func (inMemmory *MemStorage) Initialize() error {
 	for _, metricsName := range models.CounterMetricsNames {
 		delta := int64(0)
 		metrics := models.Metrics{ID: metricsName, MType: models.Counter, Delta: &delta}
-		if err := inMemmory.AddMetrics(metricsName, metrics); err != nil {
+		if err := inMemmory.AddMetrics(baseCtx, metrics); err != nil {
 			log.Println("Error initialize storage.")
 			return err
 		}
@@ -57,14 +49,14 @@ func (inMemmory *MemStorage) Initialize() error {
 	return nil
 }
 
-func (inMemmory *MemStorage) AddMetrics(metricsName string, metricsValue models.Metrics) error {
+func (inMemmory *MemStorage) AddMetrics(ctx context.Context, metrics models.Metrics) error {
 	inMemmory.mu.Lock()
 	defer inMemmory.mu.Unlock()
-	inMemmory.Storage[metricsName] = metricsValue
+	inMemmory.Storage[metrics.ID] = metrics
 	return nil
 }
 
-func (inMemmory *MemStorage) GetMetrics(metricsName string) (models.Metrics, error) {
+func (inMemmory *MemStorage) GetMetrics(ctx context.Context, metricsName string) (models.Metrics, error) {
 	inMemmory.mu.Lock()
 	defer inMemmory.mu.Unlock()
 	metrics, ok := inMemmory.Storage[metricsName]
@@ -74,27 +66,31 @@ func (inMemmory *MemStorage) GetMetrics(metricsName string) (models.Metrics, err
 	return metrics, nil
 }
 
-func (inMemmory *MemStorage) UpdateMetrics(metricsName string, metricsValue models.Metrics) error {
+func (inMemmory *MemStorage) UpdateMetrics(ctx context.Context, metricsValue models.Metrics) error {
 	inMemmory.mu.Lock()
 	defer inMemmory.mu.Unlock()
-	inMemmory.Storage[metricsName] = metricsValue
+	inMemmory.Storage[metricsValue.ID] = metricsValue
 	return nil
 }
 
-func (inMemmory *MemStorage) GetAllMetricsNames() ([]string, error) {
+func (inMemmory *MemStorage) UpdateAllMetrics(ctx context.Context, allMetrics *[]models.Metrics) error {
 	inMemmory.mu.Lock()
 	defer inMemmory.mu.Unlock()
-	allMetricsNames := make([]string, 0)
-	for metricsName := range inMemmory.Storage {
-		allMetricsNames = append(allMetricsNames, metricsName)
+	for _, metrics := range *allMetrics {
+		newValue := metrics.GetMetricsValue()
+		currentMetrics, ok := inMemmory.Storage[metrics.ID]
+		if !ok {
+			log.Print("error get metrics from map")
+			return nil
+		}
+		currentMetrics.SetMetricsValue(newValue)
+		inMemmory.Storage[metrics.ID] = currentMetrics
 	}
-	if len(allMetricsNames) == 0 {
-		return allMetricsNames, errors.New("empty storage! initialize before use")
-	}
-	return allMetricsNames, nil
+
+	return nil
 }
 
-func (inMemmory *MemStorage) GetAllMetrics() *[]models.Metrics {
+func (inMemmory *MemStorage) GetAllMetrics(ctx context.Context) *[]models.Metrics {
 	inMemmory.mu.Lock()
 	defer inMemmory.mu.Unlock()
 	values := maps.Values(inMemmory.Storage)
@@ -102,7 +98,7 @@ func (inMemmory *MemStorage) GetAllMetrics() *[]models.Metrics {
 	return &metricSlice
 }
 
-func (inMemmory *MemStorage) SaveMetricsInFile(filename string) {
+func (inMemmory *MemStorage) CreateDBDump(ctx context.Context, filename string) {
 	inMemmory.mu.Lock()
 	defer inMemmory.mu.Unlock()
 	data, err := json.Marshal(inMemmory.Storage)
@@ -115,7 +111,7 @@ func (inMemmory *MemStorage) SaveMetricsInFile(filename string) {
 	}
 }
 
-func (inMemmory *MemStorage) RestoreMetricsFromFile(filename string) {
+func (inMemmory *MemStorage) RestoreDBDump(ctx context.Context, filename string) {
 	if _, err := os.Stat(filename); err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Printf("file with dump %s not exist", filename)
 		return
@@ -132,7 +128,7 @@ func (inMemmory *MemStorage) RestoreMetricsFromFile(filename string) {
 		log.Printf("cannot Unmarshal read data. error: %s", err.Error())
 		return
 	}
-	for name, value := range readStorage {
-		inMemmory.UpdateMetrics(name, value)
+	for _, value := range readStorage {
+		inMemmory.UpdateMetrics(context.Background(), value)
 	}
 }
