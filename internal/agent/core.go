@@ -32,6 +32,7 @@ type AgentConfig struct {
 	serverAddress  string
 	pollInterval   time.Duration
 	reportInterval time.Duration
+	signingKey     string
 }
 
 func NewAgentConfig() (*AgentConfig, error) {
@@ -45,11 +46,17 @@ func NewAgentConfig() (*AgentConfig, error) {
 	newConfig.reportInterval = time.Duration(interval) * time.Second
 	agentFlags.UintVar(&interval, "p", 2, "poll interval in seconds. default 2.")
 	newConfig.pollInterval = time.Duration(interval) * time.Second
+	agentFlags.StringVar(&newConfig.signingKey, "k", "", "key for signing data")
 	agentFlags.Parse(os.Args[1:])
 
 	envServerAddr, ok := os.LookupEnv("ADDRESS")
 	if ok {
 		newConfig.serverAddress = envServerAddr
+	}
+
+	envSigningKey, ok := os.LookupEnv("KEY")
+	if ok {
+		newConfig.signingKey = envSigningKey
 	}
 
 	envPollINterval, ok := os.LookupEnv("POLL_INTERVAL")
@@ -153,7 +160,9 @@ func (agent *Agent) SendMetrics() error {
 	return nil
 }
 
-func (agent *Agent) SendJSONMetrics(useCompression bool) error {
+func (agent *Agent) SendJSONMetrics() error {
+
+	useCompression := true
 
 	tr := &http.Transport{}
 	client := &http.Client{Transport: tr}
@@ -187,6 +196,10 @@ func (agent *Agent) SendJSONMetrics(useCompression bool) error {
 		req.Header.Set("Content-Type", "application/json")
 		if useCompression {
 			req.Header.Set("Content-Encoding", "gzip")
+		}
+		if agent.config.signingKey != "" {
+			bodyHash := misc.GetRequestHash(requestBody.Bytes(), agent.config.signingKey)
+			req.Header.Set("HashSHA256", bodyHash)
 		}
 		response, err := client.Do(req)
 
@@ -230,7 +243,10 @@ func (agent *Agent) SendBunchMetrics() error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Content-Encoding", "gzip")
-
+	if agent.config.signingKey != "" {
+		bodyHash := misc.GetRequestHash(requestBody.Bytes(), agent.config.signingKey)
+		req.Header.Set("HashSHA256", bodyHash)
+	}
 	response, err := client.Do(req)
 	if err != nil {
 		return misc.NewRetrialableError(err)
@@ -275,7 +291,7 @@ func (agent *Agent) MainLoop() {
 			case v := <-done:
 				ch <- v
 			case <-reportTicker.C:
-				err := misc.RetriableErrorHandler(agent.SendBunchMetrics)
+				err := misc.RetriableErrorHandler(agent.SendJSONMetrics)
 				if err != nil {
 					log.Println("error send data to server. agent down.")
 					ch <- false

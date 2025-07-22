@@ -49,6 +49,7 @@ func RetriableErrorHandler(function func() error) error {
 				}
 			}
 		default:
+			log.Printf("not retrirable error. error: %v.\n ", err)
 			return err
 		}
 	}
