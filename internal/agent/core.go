@@ -51,7 +51,7 @@ func NewAgentConfig() (*AgentConfig, error) {
 	agentFlags.UintVar(&interval, "p", 2, "poll interval in seconds. default 2.")
 	newConfig.pollInterval = time.Duration(interval) * time.Second
 	agentFlags.StringVar(&newConfig.signingKey, "k", "", "key for signing data")
-	agentFlags.UintVar(&newConfig.rateLimit, "l", 1, "amount sendings threads. default 1.")
+	agentFlags.UintVar(&newConfig.rateLimit, "l", 4, "amount sendings threads. default 4.")
 	agentFlags.Parse(os.Args[1:])
 
 	envServerAddr, ok := os.LookupEnv("ADDRESS")
@@ -389,7 +389,6 @@ func (agent *Agent) MainLoop() {
 	defer reportTicker.Stop()
 
 	done := make(chan bool)
-
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
