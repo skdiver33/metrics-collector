@@ -370,12 +370,12 @@ func (agent *Agent) SendMetricsParallel() error {
 	}
 	close(metricsChannel)
 
-	for res := range resultChannel {
+	for i := 0; i < int(agent.config.rateLimit); i++ {
+		res := <-resultChannel
 		if res.err != nil {
 			return res.err
 		}
 	}
-	close(resultChannel)
 	return nil
 }
 
@@ -408,7 +408,7 @@ func (agent *Agent) MainLoop() {
 		}
 
 	}()
-
+	wg.Add(1)
 	go func() {
 
 		for {
