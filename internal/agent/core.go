@@ -15,11 +15,14 @@ import (
 	"reflect"
 	"runtime"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/skdiver33/metrics-collector/internal/misc"
 	"github.com/skdiver33/metrics-collector/internal/store"
 
+	"github.com/shirou/gopsutil/v4/load"
+	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/skdiver33/metrics-collector/models"
 )
 
@@ -33,6 +36,7 @@ type AgentConfig struct {
 	pollInterval   time.Duration
 	reportInterval time.Duration
 	signingKey     string
+	rateLimit      uint
 }
 
 func NewAgentConfig() (*AgentConfig, error) {
@@ -47,6 +51,7 @@ func NewAgentConfig() (*AgentConfig, error) {
 	agentFlags.UintVar(&interval, "p", 2, "poll interval in seconds. default 2.")
 	newConfig.pollInterval = time.Duration(interval) * time.Second
 	agentFlags.StringVar(&newConfig.signingKey, "k", "", "key for signing data")
+	agentFlags.UintVar(&newConfig.rateLimit, "l", 1, "amount sendings threads. default 1.")
 	agentFlags.Parse(os.Args[1:])
 
 	envServerAddr, ok := os.LookupEnv("ADDRESS")
@@ -77,6 +82,15 @@ func NewAgentConfig() (*AgentConfig, error) {
 		newConfig.reportInterval = time.Duration(interval) * time.Second
 	}
 
+	envRateLimit, ok := os.LookupEnv("RATE_LIMIT")
+	if ok {
+		limit, err := strconv.ParseUint(envRateLimit, 10, 32)
+		newConfig.rateLimit = uint(limit)
+		if err != nil {
+			return nil, errors.New("can`t convert RATE_LIMIT env variable")
+		}
+	}
+
 	return &newConfig, nil
 }
 
@@ -89,6 +103,25 @@ func NewAgent(storage store.StorageInterface) (*Agent, error) {
 	}
 	newAgent.metricStorage = storage
 	return &newAgent, nil
+}
+
+func (agent *Agent) RuntimeMetricsUpdate() error {
+	v, _ := mem.VirtualMemory()
+	metrics := models.Metrics{MType: models.Gauge}
+	metrics.ID = "TotalMemory"
+	val := float64(v.Total)
+	metrics.Value = &val
+	agent.metricStorage.UpdateMetrics(context.Background(), metrics)
+	metrics.ID = "FreeMemory"
+	val = float64(v.Free)
+	metrics.Value = &val
+	agent.metricStorage.UpdateMetrics(context.Background(), metrics)
+	loadInfo, _ := load.Avg()
+	metrics.ID = "CPUutilization1"
+	val = loadInfo.Load1
+	metrics.Value = &val
+	agent.metricStorage.UpdateMetrics(context.Background(), metrics)
+	return nil
 }
 
 func (agent *Agent) UpdateMetrics() error {
@@ -260,7 +293,94 @@ func (agent *Agent) SendBunchMetrics() error {
 	return nil
 }
 
+type Result struct {
+	status string
+	err    error
+}
+
+func (agent *Agent) sendOneMetrics(id int, jobs <-chan models.Metrics, result chan<- Result) {
+	res := Result{}
+	tr := &http.Transport{}
+	client := &http.Client{Transport: tr}
+	for metrics := range jobs {
+		log.Printf("Work %d thread\n", id)
+		buf, err := json.Marshal(metrics)
+		if err != nil {
+			res.err = fmt.Errorf("error marshal metrics to JSON. error: %w", err)
+			result <- res
+			continue
+		}
+
+		var requestBody bytes.Buffer
+
+		zw := gzip.NewWriter(&requestBody)
+		if _, err := zw.Write(buf); err != nil {
+			res.err = fmt.Errorf("error compress metrics %s. error: %w", metrics.ID, err)
+			result <- res
+			continue
+		}
+		if err := zw.Close(); err != nil {
+			res.err = fmt.Errorf("error close zip writer. error: %w", err)
+			result <- res
+			continue
+		}
+
+		req, err := http.NewRequest(http.MethodPost, "http://"+agent.config.serverAddress+"/update/", &requestBody)
+		if err != nil {
+			res.err = fmt.Errorf("error! create request. error: %w", err)
+			result <- res
+			continue
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Encoding", "gzip")
+
+		if agent.config.signingKey != "" {
+			bodyHash := misc.GetRequestHash(requestBody.Bytes(), agent.config.signingKey)
+			req.Header.Set("HashSHA256", bodyHash)
+		}
+		response, err := client.Do(req)
+
+		if err != nil {
+			res.err = misc.NewRetrialableError(err)
+			result <- res
+			continue
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			res.err = fmt.Errorf("error update metrics %s on server. Response code %d ", metrics.ID, response.StatusCode)
+			result <- res
+			continue
+		}
+		res.status = "ok"
+		result <- res
+	}
+}
+
+func (agent *Agent) SendMetricsParallel() error {
+	allMetrics := agent.metricStorage.GetAllMetrics(context.Background())
+
+	metricsChannel := make(chan models.Metrics, len(*allMetrics))
+	resultChannel := make(chan Result, len(*allMetrics))
+	for i := 0; i < int(agent.config.rateLimit); i++ {
+		go agent.sendOneMetrics(i, metricsChannel, resultChannel)
+	}
+
+	for _, metrics := range *allMetrics {
+		metricsChannel <- metrics
+	}
+	close(metricsChannel)
+
+	for res := range resultChannel {
+		if res.err != nil {
+			return res.err
+		}
+	}
+	close(resultChannel)
+	return nil
+}
+
 func (agent *Agent) MainLoop() {
+	var mu sync.Mutex
 
 	poolTicker := time.NewTicker(agent.config.pollInterval)
 	defer poolTicker.Stop()
@@ -268,38 +388,64 @@ func (agent *Agent) MainLoop() {
 	reportTicker := time.NewTicker(agent.config.reportInterval)
 	defer reportTicker.Stop()
 
-	ch := make(chan bool)
 	done := make(chan bool)
 
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+
 		for {
 			select {
-			case v := <-done:
-				ch <- v
+			case <-done:
+				wg.Done()
 			case <-poolTicker.C:
+				mu.Lock()
 				if err := agent.UpdateMetrics(); err != nil {
 					log.Printf("error update metrics. error: %s", err.Error())
 				}
+				mu.Unlock()
 			}
 		}
 
 	}()
 
 	go func() {
+
 		for {
 			select {
-			case v := <-done:
-				ch <- v
+			case <-done:
+				wg.Done()
+			case <-poolTicker.C:
+				mu.Lock()
+				if err := agent.RuntimeMetricsUpdate(); err != nil {
+					log.Printf("error runtime update metrics. error: %s", err.Error())
+				}
+				mu.Unlock()
+			}
+		}
+
+	}()
+
+	wg.Add(1)
+	go func() {
+
+		for {
+			select {
+			case <-done:
+				wg.Done()
 			case <-reportTicker.C:
-				err := misc.RetriableErrorHandler(agent.SendJSONMetrics)
+				mu.Lock()
+				err := misc.RetriableErrorHandler(agent.SendMetricsParallel)
+				mu.Unlock()
 				if err != nil {
 					log.Println("error send data to server. agent down.")
-					ch <- false
+					done <- true
+					wg.Done()
 				}
 
 			}
 		}
 
 	}()
-	<-ch
+	wg.Wait()
 }
