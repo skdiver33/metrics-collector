@@ -30,7 +30,6 @@ func newServerConfig() *ServerConfig {
 	serverFlags.StringVar(&serverConfig.StorageDumpPath, "f", "", "path to file for storage dump. Default empty and disable.")
 	serverFlags.StringVar(&serverConfig.SigningKey, "k", "", "key for check signing response body. Default empty")
 	serverFlags.StringVar(&serverConfig.SQLDBAddress, "d", "", "DB connection string. Default - empty and disable.")
-	//serverFlags.StringVar(&serverConfig.SQLDBAddress, "d", "host=192.168.1.48 user=bob password=secret dbname=metrics sslmode=disable", "DB connection string. Default - empty and disable.")
 	serverFlags.BoolVar(&serverConfig.IsDumpRestore, "r", false, "use dump for restore storage state")
 	serverFlags.Parse(os.Args[1:])
 

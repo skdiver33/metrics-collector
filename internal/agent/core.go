@@ -106,7 +106,10 @@ func NewAgent(storage store.StorageInterface) (*Agent, error) {
 }
 
 func (agent *Agent) RuntimeMetricsUpdate() error {
-	v, _ := mem.VirtualMemory()
+	v, err := mem.VirtualMemory()
+	if err != nil {
+		return fmt.Errorf("error get runtime metrics(memmory info). error:  %w", err)
+	}
 	metrics := models.Metrics{MType: models.Gauge}
 	metrics.ID = "TotalMemory"
 	val := float64(v.Total)
@@ -116,7 +119,10 @@ func (agent *Agent) RuntimeMetricsUpdate() error {
 	val = float64(v.Free)
 	metrics.Value = &val
 	agent.metricStorage.UpdateMetrics(context.Background(), metrics)
-	loadInfo, _ := load.Avg()
+	loadInfo, err := load.Avg()
+	if err != nil {
+		return fmt.Errorf("error get runtime metrics(load info). error:  %w", err)
+	}
 	metrics.ID = "CPUutilization1"
 	val = loadInfo.Load1
 	metrics.Value = &val
