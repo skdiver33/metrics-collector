@@ -199,59 +199,55 @@ func (agent *Agent) SendMetrics() error {
 	return nil
 }
 
-func (agent *Agent) SendJSONMetrics() error {
+func (agent *Agent) SendJSONMetrics(metrics *models.Metrics) error {
 
 	useCompression := true
 
 	tr := &http.Transport{}
 	client := &http.Client{Transport: tr}
 
-	allMetrics := agent.metricStorage.GetAllMetrics(context.Background())
-	for _, metrics := range *allMetrics {
-
-		buf, err := json.Marshal(metrics)
-		if err != nil {
-			return fmt.Errorf("error marshal metrics to JSON. error: %w", err)
-		}
-
-		var requestBody bytes.Buffer
-
-		if useCompression {
-			zw := gzip.NewWriter(&requestBody)
-			if _, err := zw.Write(buf); err != nil {
-				return fmt.Errorf("error compress metrics %s. error: %w", metrics.ID, err)
-
-			}
-			if err := zw.Close(); err != nil {
-				return fmt.Errorf("error close zip writer. error: %w", err)
-			}
-		} else {
-			requestBody.Write(buf)
-		}
-		req, err := http.NewRequest(http.MethodPost, "http://"+agent.config.serverAddress+"/update/", &requestBody)
-		if err != nil {
-			return fmt.Errorf("error! create request. error: %w", err)
-		}
-		req.Header.Set("Content-Type", "application/json")
-		if useCompression {
-			req.Header.Set("Content-Encoding", "gzip")
-		}
-		if agent.config.signingKey != "" {
-			bodyHash := misc.GetRequestHash(requestBody.Bytes(), agent.config.signingKey)
-			req.Header.Set("HashSHA256", bodyHash)
-		}
-		response, err := client.Do(req)
-
-		if err != nil {
-			return misc.NewRetrialableError(err)
-		}
-		defer response.Body.Close()
-
-		if response.StatusCode != http.StatusOK {
-			return fmt.Errorf("error update metrics %s on server. Response code %d ", metrics.ID, response.StatusCode)
-		}
-
+	buf, err := json.Marshal(metrics)
+	if err != nil {
+		return fmt.Errorf("error marshal metrics to JSON. error: %w", err)
 	}
+
+	var requestBody bytes.Buffer
+
+	if useCompression {
+		zw := gzip.NewWriter(&requestBody)
+		if _, err := zw.Write(buf); err != nil {
+			return fmt.Errorf("error compress metrics %s. error: %w", metrics.ID, err)
+
+		}
+		if err := zw.Close(); err != nil {
+			return fmt.Errorf("error close zip writer. error: %w", err)
+		}
+	} else {
+		requestBody.Write(buf)
+	}
+	req, err := http.NewRequest(http.MethodPost, "http://"+agent.config.serverAddress+"/update/", &requestBody)
+	if err != nil {
+		return fmt.Errorf("error! create request. error: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if useCompression {
+		req.Header.Set("Content-Encoding", "gzip")
+	}
+	if agent.config.signingKey != "" {
+		bodyHash := misc.GetRequestHash(requestBody.Bytes(), agent.config.signingKey)
+		req.Header.Set("HashSHA256", bodyHash)
+	}
+	response, err := client.Do(req)
+
+	if err != nil {
+		return misc.NewRetrialableError(err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("error update metrics %s on server. Response code %d ", metrics.ID, response.StatusCode)
+	}
+
 	return nil
 }
 
@@ -299,76 +295,42 @@ func (agent *Agent) SendBunchMetrics() error {
 	return nil
 }
 
+func (agent *Agent) SendMetricsConsistently() error {
+	allMetrics := agent.metricStorage.GetAllMetrics(context.Background())
+	for _, metrics := range *allMetrics {
+		err := agent.SendJSONMetrics(&metrics)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type Result struct {
 	status string
 	err    error
 }
 
-func (agent *Agent) sendOneMetrics(id int, jobs <-chan models.Metrics, result chan<- Result) {
+func (agent *Agent) sendOneMetrics(jobs <-chan models.Metrics, result chan<- Result) {
 	res := Result{}
-	tr := &http.Transport{}
-	client := &http.Client{Transport: tr}
 	for metrics := range jobs {
-		log.Printf("Work %d thread\n", id)
-		buf, err := json.Marshal(metrics)
+		err := agent.SendJSONMetrics(&metrics)
 		if err != nil {
-			res.err = fmt.Errorf("error marshal metrics to JSON. error: %w", err)
+			res.err = err
 			result <- res
-			continue
 		}
-
-		var requestBody bytes.Buffer
-
-		zw := gzip.NewWriter(&requestBody)
-		if _, err := zw.Write(buf); err != nil {
-			res.err = fmt.Errorf("error compress metrics %s. error: %w", metrics.ID, err)
-			result <- res
-			continue
-		}
-		if err := zw.Close(); err != nil {
-			res.err = fmt.Errorf("error close zip writer. error: %w", err)
-			result <- res
-			continue
-		}
-
-		req, err := http.NewRequest(http.MethodPost, "http://"+agent.config.serverAddress+"/update/", &requestBody)
-		if err != nil {
-			res.err = fmt.Errorf("error! create request. error: %w", err)
-			result <- res
-			continue
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Content-Encoding", "gzip")
-
-		if agent.config.signingKey != "" {
-			bodyHash := misc.GetRequestHash(requestBody.Bytes(), agent.config.signingKey)
-			req.Header.Set("HashSHA256", bodyHash)
-		}
-		response, err := client.Do(req)
-
-		if err != nil {
-			res.err = misc.NewRetrialableError(err)
-			result <- res
-			continue
-		}
-		response.Body.Close()
-		if response.StatusCode != http.StatusOK {
-			res.err = fmt.Errorf("error update metrics %s on server. Response code %d ", metrics.ID, response.StatusCode)
-			result <- res
-			continue
-		}
-		res.status = "ok"
+		res.status = "Ok"
 		result <- res
 	}
 }
 
 func (agent *Agent) SendMetricsParallel() error {
 	allMetrics := agent.metricStorage.GetAllMetrics(context.Background())
-
-	metricsChannel := make(chan models.Metrics, len(*allMetrics))
-	resultChannel := make(chan Result, len(*allMetrics))
+	numJobs := len(*allMetrics)
+	metricsChannel := make(chan models.Metrics, numJobs)
+	resultChannel := make(chan Result, numJobs)
 	for i := 0; i < int(agent.config.rateLimit); i++ {
-		go agent.sendOneMetrics(i, metricsChannel, resultChannel)
+		go agent.sendOneMetrics(metricsChannel, resultChannel)
 	}
 
 	for _, metrics := range *allMetrics {
@@ -376,7 +338,7 @@ func (agent *Agent) SendMetricsParallel() error {
 	}
 	close(metricsChannel)
 
-	for i := 0; i < int(agent.config.rateLimit); i++ {
+	for i := 0; i < numJobs; i++ {
 		res := <-resultChannel
 		if res.err != nil {
 			return res.err
@@ -403,10 +365,13 @@ func (agent *Agent) MainLoop() {
 			select {
 			case <-done:
 				wg.Done()
+				return
 			case <-poolTicker.C:
 				mu.Lock()
 				if err := agent.UpdateMetrics(); err != nil {
 					log.Printf("error update metrics. error: %s", err.Error())
+					close(done)
+					return
 				}
 				mu.Unlock()
 			}
@@ -420,12 +385,16 @@ func (agent *Agent) MainLoop() {
 			select {
 			case <-done:
 				wg.Done()
+				return
 			case <-poolTicker.C:
 				mu.Lock()
 				if err := agent.RuntimeMetricsUpdate(); err != nil {
 					log.Printf("error runtime update metrics. error: %s", err.Error())
+					close(done)
+					return
 				}
 				mu.Unlock()
+
 			}
 		}
 
@@ -438,14 +407,16 @@ func (agent *Agent) MainLoop() {
 			select {
 			case <-done:
 				wg.Done()
+				return
 			case <-reportTicker.C:
 				mu.Lock()
 				err := misc.RetriableErrorHandler(agent.SendMetricsParallel)
 				mu.Unlock()
 				if err != nil {
 					log.Println("error send data to server. agent down.")
-					done <- true
+					close(done)
 					wg.Done()
+					return
 				}
 
 			}
