@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/skdiver33/metrics-collector/internal/misc"
 	"github.com/skdiver33/metrics-collector/internal/store"
 	"github.com/skdiver33/metrics-collector/models"
 	"go.uber.org/zap"
@@ -20,6 +21,7 @@ import (
 type MetricsHandler struct {
 	metricsStorage store.StorageInterface
 	logger         *zap.SugaredLogger
+	signingKey     string
 }
 
 func NewMetricsHandler(storage store.StorageInterface) (*MetricsHandler, error) {
@@ -256,6 +258,48 @@ func (handler *MetricsHandler) RequestLogger(h http.Handler) http.Handler {
 	return http.HandlerFunc(logerFunc)
 }
 
+//****************************** Signinig  Handler **************************************
+
+type SignigWriter struct {
+	http.ResponseWriter
+	key string
+}
+
+func (w SignigWriter) Write(b []byte) (int, error) {
+	if w.key != "" {
+		hash := misc.GetRequestHash(b, w.key)
+		w.Header().Set("HashSHA256", hash)
+	}
+	//	w.WriteHeader(http.StatusOK)
+	return w.ResponseWriter.Write(b)
+
+}
+
+func (handler *MetricsHandler) SigningHandle(next http.Handler) http.Handler {
+	signigKey := handler.signingKey
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if receiveHash := r.Header.Get("HashSHA256"); receiveHash != "" && signigKey != "" {
+
+			body, err := io.ReadAll(r.Body)
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			if err != nil {
+				log.Println("error read body for check sign")
+				return
+			}
+			hash := misc.GetRequestHash(body, signigKey)
+			if hash != receiveHash {
+				log.Println("receive hash and calculate hash does not match")
+				http.Error(w, "", http.StatusBadRequest)
+				return
+			}
+		}
+		next.ServeHTTP(SignigWriter{key: signigKey, ResponseWriter: w}, r)
+
+		//next.ServeHTTP(w, r)
+
+	})
+}
+
 //********************** Compress Handler *******************************************
 
 type gzipWriter struct {
@@ -269,7 +313,7 @@ func (w gzipWriter) Write(b []byte) (int, error) {
 	for _, value := range typeForGzip {
 		if strings.Contains(contentTypes, value) {
 			w.Header().Set("Content-Encoding", "gzip")
-			w.WriteHeader(http.StatusOK)
+			//w.WriteHeader(http.StatusOK)
 			return w.Writer.Write(b)
 		}
 	}
