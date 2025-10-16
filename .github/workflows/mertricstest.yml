@@ -78,7 +78,11 @@ jobs:
           github.head_ref == 'iter11' ||
           github.head_ref == 'iter12' ||
           github.head_ref == 'iter13' ||
-          github.head_ref == 'iter14'
+          github.head_ref == 'iter14' ||
+          
+          
+          
+
         run: |
           metricstest -test.v -test.run=^TestIteration1$ \
             -binary-path=cmd/server/server
@@ -352,3 +356,17 @@ jobs:
           github.head_ref == 'iter14'
         run: |
           go test -v -race ./...
+      - name: "Code increment #16"
+        if: |
+          github.ref == 'refs/heads/main' ||
+          github.head_ref == 'iter16'
+        run: |
+          SERVER_PORT=$(random unused-port)
+          ADDRESS="localhost:${SERVER_PORT}"
+          TEMP_FILE=$(random tempfile)
+          metricstest -test.v -test.run=^TestIteration14$ \
+            -agent-binary-path=cmd/agent/agent \
+            -binary-path=cmd/server/server \
+            -database-dsn='postgres://postgres:postgres@postgres:5432/praktikum?sslmode=disable' \
+            -server-port=$SERVER_PORT \
+            -source-path=.
