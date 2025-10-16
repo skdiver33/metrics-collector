@@ -123,14 +123,16 @@ func NewServer() (*Server, error) {
 	newRouter.Route("/", func(r chi.Router) {
 		r.Get("/", newHandler.GetAllMetrics)
 		r.Get("/ping", newHandler.PingDB)
-		r.Post("/updates/", newHandler.SetBunchMetrics)
 		r.Route("/value", func(r chi.Router) {
 			r.Post("/", newHandler.GetJSONMetrics)
 			r.Get("/{metricsType}/{metricsName}", newHandler.GetMetrics)
 		})
-		r.Route("/update", func(r chi.Router) {
-			r.Post("/", newHandler.SetJSONMetrics)
-			r.Post("/{metricsType}/{metricsName}/{metricsValue}", newHandler.SetMetrics)
+		r.Group(func(r chi.Router) {
+			r.Post("/updates/", newHandler.SetBunchMetrics)
+			r.Route("/update", func(r chi.Router) {
+				r.Post("/", newHandler.SetJSONMetrics)
+				r.Post("/{metricsType}/{metricsName}/{metricsValue}", newHandler.SetMetrics)
+			})
 		})
 	})
 	newServer.HandlersRouter = newRouter
