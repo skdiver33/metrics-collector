@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	chi "github.com/go-chi/chi/v5"
+	"github.com/skdiver33/metrics-collector/internal/audit"
 	"github.com/skdiver33/metrics-collector/internal/store"
 )
 
@@ -19,6 +20,8 @@ type ServerConfig struct {
 	IsDumpRestore   bool
 	SQLDBAddress    string
 	SigningKey      string
+	AuditURL        string
+	AuditFile       string
 }
 
 func newServerConfig() *ServerConfig {
@@ -31,6 +34,8 @@ func newServerConfig() *ServerConfig {
 	serverFlags.StringVar(&serverConfig.SigningKey, "k", "", "key for check signing response body. Default empty")
 	serverFlags.StringVar(&serverConfig.SQLDBAddress, "d", "", "DB connection string. Default - empty and disable.")
 	serverFlags.BoolVar(&serverConfig.IsDumpRestore, "r", false, "use dump for restore storage state")
+	serverFlags.StringVar(&serverConfig.AuditFile, "audit-file", "", "filename for audit file. Default empty")
+	serverFlags.StringVar(&serverConfig.AuditURL, "audit-url", "", "url for audit service. Default empty")
 	serverFlags.Parse(os.Args[1:])
 
 	envServerAddr, ok := os.LookupEnv("ADDRESS")
@@ -69,6 +74,15 @@ func newServerConfig() *ServerConfig {
 	envDBAddr, ok := os.LookupEnv("DATABASE_DSN")
 	if ok {
 		serverConfig.SQLDBAddress = envDBAddr
+	}
+	envAuditFile, ok := os.LookupEnv("AUDIT_FILE")
+	if ok {
+		serverConfig.AuditFile = envAuditFile
+	}
+	envAuditURL, ok := os.LookupEnv("AUDIT_URL")
+	if ok {
+		serverConfig.AuditURL = envAuditURL
+
 	}
 
 	return &serverConfig
@@ -114,6 +128,16 @@ func NewServer() (*Server, error) {
 		return nil, err
 	}
 
+	if newServer.Config.AuditFile != "" {
+		fo := audit.NewFileSubscriber(newServer.Config.AuditFile)
+		newHandler.auditor.Register(fo)
+	}
+
+	if newServer.Config.AuditURL != "" {
+		uo := audit.NewURLSubscriber(newServer.Config.AuditURL)
+		newHandler.auditor.Register(uo)
+	}
+
 	newHandler.signingKey = newServer.Config.SigningKey
 
 	newRouter := chi.NewRouter()
@@ -127,12 +151,10 @@ func NewServer() (*Server, error) {
 			r.Post("/", newHandler.GetJSONMetrics)
 			r.Get("/{metricsType}/{metricsName}", newHandler.GetMetrics)
 		})
-		r.Group(func(r chi.Router) {
-			r.Post("/updates/", newHandler.SetBunchMetrics)
-			r.Route("/update", func(r chi.Router) {
-				r.Post("/", newHandler.SetJSONMetrics)
-				r.Post("/{metricsType}/{metricsName}/{metricsValue}", newHandler.SetMetrics)
-			})
+		r.Post("/updates/", newHandler.SetBunchMetrics)
+		r.Route("/update", func(r chi.Router) {
+			r.Post("/", newHandler.SetJSONMetrics)
+			r.Post("/{metricsType}/{metricsName}/{metricsValue}", newHandler.SetMetrics)
 		})
 	})
 	newServer.HandlersRouter = newRouter

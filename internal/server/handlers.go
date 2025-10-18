@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	audit "github.com/skdiver33/metrics-collector/internal/audit"
 	"github.com/skdiver33/metrics-collector/internal/misc"
 	"github.com/skdiver33/metrics-collector/internal/store"
 	"github.com/skdiver33/metrics-collector/models"
@@ -22,6 +23,7 @@ type MetricsHandler struct {
 	metricsStorage store.StorageInterface
 	logger         *zap.SugaredLogger
 	signingKey     string
+	auditor        *audit.AuditEvent
 }
 
 func NewMetricsHandler(storage store.StorageInterface) (*MetricsHandler, error) {
@@ -33,6 +35,7 @@ func NewMetricsHandler(storage store.StorageInterface) (*MetricsHandler, error) 
 	}
 	defer logger.Sync()
 	newHandler.logger = logger.Sugar()
+	newHandler.auditor = audit.NewAuditEvent()
 
 	return &newHandler, nil
 }
@@ -68,8 +71,13 @@ func (handler *MetricsHandler) SetMetrics(rw http.ResponseWriter, request *http.
 		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}
+	auditData := make([]string, 0)
+	auditData = append(auditData, metricsName)
+	handler.auditor.Update(auditData, request.RemoteAddr)
+
 	rw.Header().Set("Content-type", "text/plain")
 	rw.WriteHeader(http.StatusOK)
+
 }
 
 func (handler *MetricsHandler) SetJSONMetrics(rw http.ResponseWriter, request *http.Request) {
@@ -116,6 +124,10 @@ func (handler *MetricsHandler) SetJSONMetrics(rw http.ResponseWriter, request *h
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	auditData := make([]string, 0)
+	auditData = append(auditData, receiveMetrics.ID)
+	handler.auditor.Update(auditData, request.RemoteAddr)
 
 	rw.Header().Set("Content-Type", "application/json")
 	rw.Write(resp)
@@ -208,6 +220,12 @@ func (handler *MetricsHandler) SetBunchMetrics(rw http.ResponseWriter, request *
 		log.Printf("error update all metrics in storage %s", err.Error())
 		http.Error(rw, "", http.StatusBadRequest)
 	}
+
+	auditData := make([]string, 0)
+	for _, metric := range receiveMetrics {
+		auditData = append(auditData, metric.ID)
+	}
+	handler.auditor.Update(auditData, request.RemoteAddr)
 
 	rw.Header().Set("Content-type", "text/plain")
 	rw.WriteHeader(http.StatusOK)
