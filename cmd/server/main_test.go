@@ -30,32 +30,32 @@ func testRequest(t *testing.T, ts *httptest.Server, method, path string) (*http.
 	return resp, string(respBody)
 }
 
-// func TestServer(t *testing.T) {
-
-// 	newServer, err := server.NewServer()
-
-// 	if err != nil {
-// 		t.Error("error inialize server")
-// 	}
-// 	ts := httptest.NewServer(newServer.HandlersRouter)
-// 	defer ts.Close()
-// 	var testTable = []struct {
-// 		url    string
-// 		status int
-// 	}{
-// 		{"/update/counter/PollCount/123", http.StatusOK},
-// 		{"/update/gauge/123.3", http.StatusNotFound},
-// 		{"/update/blabla/PollCount/123.3", http.StatusBadRequest},
-// 		{"/update/counter/PollCount/123.3", http.StatusBadRequest},
-// 	}
-// 	for _, v := range testTable {
-// 		resp, _ := testRequest(t, ts, "POST", v.url)
-// 		assert.Equal(t, v.status, resp.StatusCode)
-// 		resp.Body.Close()
-// 	}
-// }
-
 func TestServer(t *testing.T) {
+
+	newServer, err := server.NewServer()
+
+	if err != nil {
+		t.Error("error inialize server")
+	}
+	ts := httptest.NewServer(newServer.HandlersRouter)
+	defer ts.Close()
+	var testTable = []struct {
+		url    string
+		status int
+	}{
+		{"/update/counter/PollCount/123", http.StatusOK},
+		{"/update/gauge/123.3", http.StatusNotFound},
+		{"/update/blabla/PollCount/123.3", http.StatusBadRequest},
+		{"/update/counter/PollCount/123.3", http.StatusBadRequest},
+	}
+	for _, v := range testTable {
+		resp, _ := testRequest(t, ts, "POST", v.url)
+		assert.Equal(t, v.status, resp.StatusCode)
+		resp.Body.Close()
+	}
+}
+
+func TestServerAudit(t *testing.T) {
 	os.Setenv("AUDIT_FILE", "./auditfile")
 	newServer, err := server.NewServer()
 	if err != nil {
