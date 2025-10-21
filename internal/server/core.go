@@ -1,3 +1,7 @@
+// Модуль core содержит реализацию веб-сервера.
+// Предоставляет возможность запустить веб-сервер с заданными параметрами.
+// Параметры имеют значения по умолчанию, а так же могут быть заданы через аргументы запуска
+// или аргументы командной строки.
 package server
 
 import (
@@ -13,6 +17,7 @@ import (
 	"github.com/skdiver33/metrics-collector/internal/store"
 )
 
+// ServerConfig - структура с конфигурацией сервера.
 type ServerConfig struct {
 	ListenAddress   string
 	StoreInterval   uint
@@ -88,18 +93,20 @@ func newServerConfig() *ServerConfig {
 	return &serverConfig
 }
 
+// Server - структура агрегирующая необходимые для запуска сервера компоненты.
 type Server struct {
-	Config         *ServerConfig
-	Storage        store.StorageInterface
+	// Конфиг сервера
+	Config *ServerConfig
+	// Заданное хранилище для хранения метрик
+	Storage store.StorageInterface
+	// Обработчик http запросов
 	HandlersRouter http.Handler
 }
 
+// NewServer() - возвращает указатель на новый сервер.
 func NewServer() (*Server, error) {
-
 	newServer := Server{}
-
 	newServer.Config = newServerConfig()
-
 	if newServer.Config.SQLDBAddress != "" {
 		newStorage, err := store.NewSQLStorage(newServer.Config.SQLDBAddress)
 		if err != nil {
