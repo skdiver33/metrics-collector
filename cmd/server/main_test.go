@@ -11,7 +11,6 @@ import (
 
 	"github.com/skdiver33/metrics-collector/internal/server"
 	"github.com/skdiver33/metrics-collector/models"
-	model "github.com/skdiver33/metrics-collector/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -63,7 +62,7 @@ func TestServerAudit(t *testing.T) {
 	}
 	ts := httptest.NewServer(newServer.HandlersRouter)
 	defer ts.Close()
-	testMetrics := model.Metrics{ID: "Lookups", MType: models.Gauge}
+	testMetrics := models.Metrics{ID: "Lookups", MType: models.Gauge}
 	testMetrics.SetMetricsValue("123.5")
 	data, err := json.Marshal(testMetrics)
 	if err != nil {
