@@ -84,6 +84,9 @@ func TestServerAudit(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 
 			request, err := http.NewRequest(http.MethodPost, ts.URL+"/update", bytes.NewReader(tt.requestData))
+			if err != nil {
+				t.Fatalf("err create new request: %v", err)
+			}
 			request.Header.Add("Content-Type", "application/json")
 
 			res, err := ts.Client().Do(request)
