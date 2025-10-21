@@ -80,6 +80,7 @@ func (us *URLSubscriber) update(msg []byte) {
 		log.Println("Error send POST to audit service")
 		return
 	}
+	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		log.Println("Status not OK")
 	}
