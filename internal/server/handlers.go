@@ -328,11 +328,13 @@ type gzipWriter struct {
 func (w gzipWriter) Write(b []byte) (int, error) {
 	typeForGzip := []string{"application/json", "text/html"}
 	contentTypes := strings.Join(w.Header().Values("Content-Type"), " ")
-	for _, value := range typeForGzip {
-		if strings.Contains(contentTypes, value) {
-			w.Header().Set("Content-Encoding", "gzip")
-			//w.WriteHeader(http.StatusOK)
-			return w.Writer.Write(b)
+	if len(b) > 4096 {
+		for _, value := range typeForGzip {
+			if strings.Contains(contentTypes, value) {
+				w.Header().Set("Content-Encoding", "gzip")
+				//w.WriteHeader(http.StatusOK)
+				return w.Writer.Write(b)
+			}
 		}
 	}
 	return w.ResponseWriter.Write(b)
