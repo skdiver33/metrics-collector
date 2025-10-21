@@ -56,7 +56,6 @@ jobs:
         run: |
           go install golang.org/x/tools/cmd/goimports@latest
 
-
       - name: Build server binary
         run: |
           cd cmd/server
@@ -78,7 +77,8 @@ jobs:
           github.head_ref == 'iter11' ||
           github.head_ref == 'iter12' ||
           github.head_ref == 'iter13' ||
-          github.head_ref == 'iter14'
+          github.head_ref == 'iter14' 
+       
         run: |
           metricstest -test.v -test.run=^TestIteration1$ \
             -binary-path=cmd/server/server

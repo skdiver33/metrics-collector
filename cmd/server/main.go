@@ -1,13 +1,20 @@
 package main
 
 import (
+	"log"
 	"net/http"
 	"time"
+
+	_ "net/http/pprof"
 
 	"github.com/skdiver33/metrics-collector/internal/server"
 )
 
 func main() {
+
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 
 	server, err := server.NewServer()
 	if err != nil {
