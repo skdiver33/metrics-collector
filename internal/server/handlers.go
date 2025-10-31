@@ -29,7 +29,7 @@ type MetricsHandler struct {
 	auditor        *audit.AuditEvent
 }
 
-// NewMetricsHandler(storage store.StorageInterface) - создает новый обработчик запросов, взаимодеййствующий с переданным хранилищем.
+// NewMetricsHandler - создает новый обработчик запросов, взаимодеййствующий с переданным хранилищем.
 func NewMetricsHandler(storage store.StorageInterface) (*MetricsHandler, error) {
 	newHandler := MetricsHandler{}
 	newHandler.metricsStorage = storage
