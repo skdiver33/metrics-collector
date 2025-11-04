@@ -1,3 +1,5 @@
+// Модуль handlers содержит обработчики входящих запросов, middlewares используемые сервером.
+
 package server
 
 import (
@@ -12,18 +14,22 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	audit "github.com/skdiver33/metrics-collector/internal/audit"
 	"github.com/skdiver33/metrics-collector/internal/misc"
 	"github.com/skdiver33/metrics-collector/internal/store"
 	"github.com/skdiver33/metrics-collector/models"
 	"go.uber.org/zap"
 )
 
+// MetricsHandler - описывает обобщенный обработчик запросов. Обработчик может выполнять логгирование запросов, взаимодействует с храниоищем метрик, позволяет выполнять шифрование данных.
 type MetricsHandler struct {
 	metricsStorage store.StorageInterface
 	logger         *zap.SugaredLogger
 	signingKey     string
+	auditor        *audit.AuditEvent
 }
 
+// NewMetricsHandler - создает новый обработчик запросов, взаимодеййствующий с переданным хранилищем.
 func NewMetricsHandler(storage store.StorageInterface) (*MetricsHandler, error) {
 	newHandler := MetricsHandler{}
 	newHandler.metricsStorage = storage
@@ -33,12 +39,15 @@ func NewMetricsHandler(storage store.StorageInterface) (*MetricsHandler, error) 
 	}
 	defer logger.Sync()
 	newHandler.logger = logger.Sugar()
+	newHandler.auditor = audit.NewAuditEvent()
 
 	return &newHandler, nil
 }
 
 //****************************** Endpoint Handlers **************************************
 
+// SetMetrics - метод устанавливающий значение метрики переданной в параметрах запроса.
+// Тип запроса - POST,  URL запроса: /update/metricsType/metricsName/metricsValue
 func (handler *MetricsHandler) SetMetrics(rw http.ResponseWriter, request *http.Request) {
 
 	metricsType := chi.URLParam(request, "metricsType")
@@ -68,9 +77,17 @@ func (handler *MetricsHandler) SetMetrics(rw http.ResponseWriter, request *http.
 		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}
+	auditData := make([]string, 0)
+	auditData = append(auditData, metricsName)
+	handler.auditor.Update(auditData, request.RemoteAddr)
+
 	rw.Header().Set("Content-type", "text/plain")
 	rw.WriteHeader(http.StatusOK)
+
 }
+
+// SetJSONMetrics - обработчик обновяющий значение метрики переданной в параметрах запроса. Метрика передается в формате JSON.
+// Тип запроса - POST,  URL запроса: /update
 
 func (handler *MetricsHandler) SetJSONMetrics(rw http.ResponseWriter, request *http.Request) {
 
@@ -117,10 +134,16 @@ func (handler *MetricsHandler) SetJSONMetrics(rw http.ResponseWriter, request *h
 		return
 	}
 
+	auditData := make([]string, 0)
+	auditData = append(auditData, receiveMetrics.ID)
+	handler.auditor.Update(auditData, request.RemoteAddr)
+
 	rw.Header().Set("Content-Type", "application/json")
 	rw.Write(resp)
 }
 
+// GetMetrics - обработчик позволяющий получить значение метрики. Название метрики передается в параметре запроса.
+// Тип запроса - GET,  URL запроса: /metricsType/metricsName
 func (handler *MetricsHandler) GetMetrics(rw http.ResponseWriter, request *http.Request) {
 	metricsName := chi.URLParam(request, "metricsName")
 	metrics, err := handler.metricsStorage.GetMetrics(request.Context(), metricsName)
@@ -134,6 +157,9 @@ func (handler *MetricsHandler) GetMetrics(rw http.ResponseWriter, request *http.
 	rw.Write([]byte(metrics.GetMetricsValue()))
 }
 
+// GetJSONMetrics - обработчик позволяющий получить значение метрики. Название метрики передается в параметре запроса.
+// Запрос передается в формате JSON. Ответ отправляется в формате JSON.
+// Тип запроса - POST,  URL запроса: /value/
 func (handler *MetricsHandler) GetJSONMetrics(rw http.ResponseWriter, request *http.Request) {
 
 	receiveMetrics := models.Metrics{}
@@ -160,6 +186,9 @@ func (handler *MetricsHandler) GetJSONMetrics(rw http.ResponseWriter, request *h
 	rw.Write(resp)
 }
 
+// GetAllMetrics - обработчик позволяющий получить все метрики, хранящиеся в хранилище.
+// Ответ отправляется в формате JSON.
+// Тип запроса - GET,  URL запроса: /
 func (handler *MetricsHandler) GetAllMetrics(rw http.ResponseWriter, request *http.Request) {
 	answer := "<!DOCTYPE html>\n<html>\n<head>\n<title> Known metrics </title>\n</head>\n<body\n>"
 	metrics := handler.metricsStorage.GetAllMetrics(request.Context())
@@ -177,6 +206,10 @@ func (handler *MetricsHandler) GetAllMetrics(rw http.ResponseWriter, request *ht
 	rw.Header().Set("Content-type", "text/html")
 	rw.Write([]byte(answer))
 }
+
+// PingDB - обработчик позволяющий проверить подключение к БД, при использовании ее в качестве хранилища.
+// При установки подключения к БД возвращается StatusCode = 200.
+// Тип запроса - GET,  URL запроса: /ping
 
 func (handler *MetricsHandler) PingDB(rw http.ResponseWriter, request *http.Request) {
 	switch value := handler.metricsStorage.(type) {
@@ -208,6 +241,12 @@ func (handler *MetricsHandler) SetBunchMetrics(rw http.ResponseWriter, request *
 		log.Printf("error update all metrics in storage %s", err.Error())
 		http.Error(rw, "", http.StatusBadRequest)
 	}
+
+	auditData := make([]string, 0)
+	for _, metric := range receiveMetrics {
+		auditData = append(auditData, metric.ID)
+	}
+	handler.auditor.Update(auditData, request.RemoteAddr)
 
 	rw.Header().Set("Content-type", "text/plain")
 	rw.WriteHeader(http.StatusOK)
@@ -310,11 +349,13 @@ type gzipWriter struct {
 func (w gzipWriter) Write(b []byte) (int, error) {
 	typeForGzip := []string{"application/json", "text/html"}
 	contentTypes := strings.Join(w.Header().Values("Content-Type"), " ")
-	for _, value := range typeForGzip {
-		if strings.Contains(contentTypes, value) {
-			w.Header().Set("Content-Encoding", "gzip")
-			//w.WriteHeader(http.StatusOK)
-			return w.Writer.Write(b)
+	if len(b) > 4096 {
+		for _, value := range typeForGzip {
+			if strings.Contains(contentTypes, value) {
+				w.Header().Set("Content-Encoding", "gzip")
+				//w.WriteHeader(http.StatusOK)
+				return w.Writer.Write(b)
+			}
 		}
 	}
 	return w.ResponseWriter.Write(b)
