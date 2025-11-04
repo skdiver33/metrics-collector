@@ -18,6 +18,7 @@ import (
 )
 
 // ServerConfig - структура с конфигурацией сервера.
+// generate:reset
 type ServerConfig struct {
 	ListenAddress   string
 	StoreInterval   uint
@@ -94,6 +95,7 @@ func newServerConfig() *ServerConfig {
 }
 
 // Server - структура агрегирующая необходимые для запуска сервера компоненты.
+// generate:reset
 type Server struct {
 	// Конфиг сервера
 	Config *ServerConfig
