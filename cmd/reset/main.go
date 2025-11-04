@@ -179,8 +179,6 @@ func run(pass *analysis.Pass) (interface{}, error) {
 							continue
 						}
 						parseStruct := NewStructScel()
-						// structName := typeSpec.Name.Name
-						// fmt.Printf("Struct name %s\n", structName)
 						parseStruct.StructName = typeSpec.Name.Name
 						for _, field := range structTypeSpec.Fields.List {
 							if len(field.Names) > 1 {
@@ -189,8 +187,6 @@ func run(pass *analysis.Pass) (interface{}, error) {
 							fieldName := field.Names[0].Name
 							switch fieldType := field.Type.(type) {
 							case *ast.Ident:
-								//fmt.Printf("%s %s\n", fieldName, fieldType.Name)
-
 								if strings.Contains(baseTypes, fieldType.Name) {
 									parseStruct.OrigFields[fieldName] = fieldType.Name
 								} else {
@@ -200,24 +196,13 @@ func run(pass *analysis.Pass) (interface{}, error) {
 								if pkg, ok := fieldType.X.(*ast.Ident); ok {
 									parseStruct.OrigFieldsStruct[fieldName] = pkg.Name + "." + fieldType.Sel.Name
 								}
-
 							case *ast.MapType:
 								parseStruct.MapFields = append(parseStruct.MapFields, fieldName)
-								// key := ""
-								// value := ""
-								// if k, ok := fieldType.Key.(*ast.Ident); ok {
-								// 	key = k.Name
-								// }
-								// if v, ok := fieldType.Value.(*ast.Ident); ok {
-								// 	value = v.Name
-								// }
-								//fmt.Printf("%s maps[%s]%s\n", fieldName, key, value)
 							case *ast.ArrayType:
 								elemType := ""
 								if et, ok := fieldType.Elt.(*ast.Ident); ok {
 									elemType = et.Name
 								}
-								//fmt.Printf("%s []%s\n", fieldName, elemType)
 								parseStruct.SliesFields[fieldName] = elemType
 							case *ast.StarExpr:
 								pointType := ""
@@ -229,37 +214,12 @@ func run(pass *analysis.Pass) (interface{}, error) {
 								} else {
 									parseStruct.PointerStructFieds[fieldName] = pointType
 								}
-								//fmt.Printf("%s *%s\n", fieldName, pointType)
 							}
 
 						}
 						writeResetMethod(parseStruct, pkgPath)
-						//curPkg.pkgStructs = append(curPkg.pkgStructs, *parseStruct)
-						//fmt.Println("Call write struct")
-						//fmt.Println(fileName)
-						// if err := writeResetMethod(parseStruct, packagePath); err != nil {
-						// 	log.Print(err)
-						// }
-						// var buf bytes.Buffer
-						// err := tmpl.Execute(&buf, parseStruct)
-						// if err != nil {
-						// 	panic(err)
-						// }
-						// bufFmt, err := format.Source(buf.Bytes())
-						// if err != nil {
-						// 	panic(err)
-						// }
-						// // записываем сгенерированный код в файл
-						// //basepath := strings.TrimSuffix(getPackPath("../../.", fileName), filepath.Ext(packageName))
-
-						// err = os.WriteFile(fmt.Sprintf("%sreset.gen.go", packagePath), bufFmt, 0644)
-						// if err != nil {
-						// 	panic(err)
-						// }
-
 					}
 				}
-
 				return false
 			}
 			return true
@@ -268,42 +228,6 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	return nil, nil
 }
 
-// func getPackPath(root string, pkg string) string {
-// 	path := ""
-// 	filepath.WalkDir(root, func(s string, d fs.DirEntry, err error) error {
-// 		if err != nil {
-// 			return err
-// 		}
-// 		if d.IsDir() {
-// 			//if strings.Contains(s, pkg) {
-// 			// 	path = s
-// 			// 	fmt.Println(s)
-// 			// 	return filepath.SkipAll
-// 			// }
-// 			fmt.Printf("%s  %s %s \n", s, d.Name(), pkg)
-// 		}
-// 		return nil
-// 	})
-// 	return path
-// }
-
-// }
-// func walk(s string, d fs.DirEntry, err error) error {
-// 	if err != nil {
-// 		return err
-// 	}
-// 	if d.IsDir() {
-// 	}
-// 	return nil
-// }
-
 func main() {
 	singlechecker.Main(StructAnalizer)
-	// for _, pkgScels := range allPkg {
-	// 	fmt.Println(pkgScels.pkgName)
-
-	// 	for _, csel := range pkgScels.pkgStructs {
-	// 		writeResetMethod(&csel, pkgScels.pkgPath)
-	// 	}
-	// }
 }
