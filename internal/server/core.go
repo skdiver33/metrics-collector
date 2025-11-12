@@ -6,6 +6,10 @@ package server
 
 import (
 	"context"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
+	"errors"
 	"flag"
 	"log"
 	"net/http"
@@ -28,6 +32,7 @@ type ServerConfig struct {
 	SigningKey      string
 	AuditURL        string
 	AuditFile       string
+	keyFile         string
 }
 
 func newServerConfig() *ServerConfig {
@@ -42,6 +47,7 @@ func newServerConfig() *ServerConfig {
 	serverFlags.BoolVar(&serverConfig.IsDumpRestore, "r", false, "use dump for restore storage state")
 	serverFlags.StringVar(&serverConfig.AuditFile, "audit-file", "", "filename for audit file. Default empty")
 	serverFlags.StringVar(&serverConfig.AuditURL, "audit-url", "", "url for audit service. Default empty")
+	serverFlags.StringVar(&serverConfig.keyFile, "crypto-key", "../../keys/private.pem", "private key path. Default empty")
 	serverFlags.Parse(os.Args[1:])
 
 	envServerAddr, ok := os.LookupEnv("ADDRESS")
@@ -52,6 +58,10 @@ func newServerConfig() *ServerConfig {
 	envSigningKey, ok := os.LookupEnv("KEY")
 	if ok {
 		serverConfig.SigningKey = envSigningKey
+	}
+	envKeyFile, ok := os.LookupEnv("CRYPTO_KEY")
+	if ok {
+		serverConfig.keyFile = envKeyFile
 	}
 
 	envStoreINterval, ok := os.LookupEnv("STORE_INTERVAL")
@@ -105,6 +115,22 @@ type Server struct {
 	HandlersRouter http.Handler
 }
 
+func readPrivateKey(filePath string) (*rsa.PrivateKey, error) {
+	keyBytes, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+	pemBlock, _ := pem.Decode(keyBytes)
+	if pemBlock == nil {
+		return nil, errors.New("error decode pem block")
+	}
+	key, err := x509.ParsePKCS1PrivateKey(pemBlock.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	return key, nil
+}
+
 // NewServer - возвращает указатель на новый сервер.
 func NewServer() (*Server, error) {
 	newServer := Server{}
@@ -147,12 +173,20 @@ func NewServer() (*Server, error) {
 		newHandler.auditor.Register(uo)
 	}
 
+	if newServer.Config.keyFile != "" {
+		newHandler.privateKey, err = readPrivateKey(newServerConfig().keyFile)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	newHandler.signingKey = newServer.Config.SigningKey
 
 	newRouter := chi.NewRouter()
 	newRouter.Use(newHandler.RequestLogger)
 	newRouter.Use(newHandler.SigningHandle)
 	newRouter.Use(newHandler.GzipHandle)
+	newRouter.Use(newHandler.DecryptHandle)
 	newRouter.Route("/", func(r chi.Router) {
 		r.Get("/", newHandler.GetAllMetrics)
 		r.Get("/ping", newHandler.PingDB)

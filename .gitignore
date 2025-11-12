@@ -27,3 +27,4 @@ vendor/
 metricstest-darwin*
 
 ./tmpfile
+keys*

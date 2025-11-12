@@ -5,6 +5,8 @@ package server
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,6 +29,7 @@ type MetricsHandler struct {
 	logger         *zap.SugaredLogger
 	signingKey     string
 	auditor        *audit.AuditEvent
+	privateKey     *rsa.PrivateKey
 }
 
 // NewMetricsHandler - создает новый обработчик запросов, взаимодеййствующий с переданным хранилищем.
@@ -190,7 +193,7 @@ func (handler *MetricsHandler) GetJSONMetrics(rw http.ResponseWriter, request *h
 // Ответ отправляется в формате JSON.
 // Тип запроса - GET,  URL запроса: /
 func (handler *MetricsHandler) GetAllMetrics(rw http.ResponseWriter, request *http.Request) {
-	answer := "<!DOCTYPE html>\n<html>\n<head>\n<title> Known metrics </title>\n</head>\n<body\n>"
+	answer := "<!DOCTYPE html>\n<html>\n<head>\n<title> Known metrics </title>\n</head>\n<body>\n"
 	metrics := handler.metricsStorage.GetAllMetrics(request.Context())
 	if metrics == nil {
 		log.Print("error get metrics form storage in GetAllMetrics")
@@ -199,7 +202,7 @@ func (handler *MetricsHandler) GetAllMetrics(rw http.ResponseWriter, request *ht
 	}
 
 	for _, curMetr := range *metrics {
-		answer = fmt.Sprintf("<p>%s %s %s %s </p>\n", answer, curMetr.ID, curMetr.MType, curMetr.GetMetricsValue())
+		answer = fmt.Sprintf("%s<p>%s %s %s </p>\n", answer, curMetr.ID, curMetr.MType, curMetr.GetMetricsValue())
 	}
 	answer += "</body>\n</html>"
 
@@ -394,6 +397,28 @@ func (handler *MetricsHandler) GzipHandle(next http.Handler) http.Handler {
 		defer gz.Close()
 
 		next.ServeHTTP(gzipWriter{ResponseWriter: w, Writer: gz}, r)
+	})
+}
+
+//********************** Message Decryption Handler *******************************************
+
+func (handler *MetricsHandler) DecryptHandle(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		if handler.privateKey != nil && r.ContentLength > 0 {
+			cryptBody, err := io.ReadAll(r.Body)
+			if err != nil {
+				log.Println("error read encrypt data")
+				return
+			}
+			decryptedMessage, err := rsa.DecryptPKCS1v15(rand.Reader, handler.privateKey, cryptBody)
+			if err != nil {
+				log.Fatal(err)
+			}
+			r.Body = io.NopCloser(bytes.NewReader(decryptedMessage))
+			r.ContentLength = int64(len(decryptedMessage))
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 

@@ -5,7 +5,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -25,11 +28,14 @@ import (
 	"github.com/shirou/gopsutil/v4/load"
 	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/skdiver33/metrics-collector/models"
+
+	cryptoRand "crypto/rand"
 )
 
 type Agent struct {
 	metricStorage store.StorageInterface
 	config        *AgentConfig
+	pubKey        *rsa.PublicKey
 }
 
 type AgentConfig struct {
@@ -38,6 +44,7 @@ type AgentConfig struct {
 	reportInterval time.Duration
 	signingKey     string
 	rateLimit      uint
+	keyFile        string
 }
 
 func NewAgentConfig() (*AgentConfig, error) {
@@ -53,6 +60,7 @@ func NewAgentConfig() (*AgentConfig, error) {
 	newConfig.pollInterval = time.Duration(interval) * time.Second
 	agentFlags.StringVar(&newConfig.signingKey, "k", "", "key for signing data")
 	agentFlags.UintVar(&newConfig.rateLimit, "l", 4, "amount sendings threads. default 4.")
+	agentFlags.StringVar(&newConfig.keyFile, "crypto-key", "../../keys/public.pem", "path to public key")
 	agentFlags.Parse(os.Args[1:])
 
 	envServerAddr, ok := os.LookupEnv("ADDRESS")
@@ -63,6 +71,11 @@ func NewAgentConfig() (*AgentConfig, error) {
 	envSigningKey, ok := os.LookupEnv("KEY")
 	if ok {
 		newConfig.signingKey = envSigningKey
+	}
+
+	envCryptoKey, ok := os.LookupEnv("CRYPTO_KEY")
+	if ok {
+		newConfig.keyFile = envCryptoKey
 	}
 
 	envPollINterval, ok := os.LookupEnv("POLL_INTERVAL")
@@ -103,7 +116,35 @@ func NewAgent(storage store.StorageInterface) (*Agent, error) {
 		return nil, err
 	}
 	newAgent.metricStorage = storage
+	if newAgent.config.keyFile != "" {
+		newAgent.pubKey, err = readPubKey(newAgent.config.keyFile)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return &newAgent, nil
+}
+
+func readPubKey(filePath string) (*rsa.PublicKey, error) {
+	keyBytes, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+	pemBlock, _ := pem.Decode(keyBytes)
+	if pemBlock == nil {
+		return nil, errors.New("error decode pem block")
+	}
+	key, err := x509.ParsePKIXPublicKey(pemBlock.Bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	rsaKey, ok := key.(*rsa.PublicKey)
+	if !ok {
+		return nil, errors.New("is not public key")
+	}
+	return rsaKey, nil
+
 }
 
 func (agent *Agent) RuntimeMetricsUpdate() error {
@@ -207,9 +248,16 @@ func (agent *Agent) SendJSONMetrics(metrics *models.Metrics) error {
 	tr := &http.Transport{}
 	client := &http.Client{Transport: tr}
 
-	buf, err := json.Marshal(metrics)
+	jsonbuf, err := json.Marshal(metrics)
 	if err != nil {
 		return fmt.Errorf("error marshal metrics to JSON. error: %w", err)
+	}
+	buf := make([]byte, len(jsonbuf))
+	if agent.config.keyFile != "" {
+		buf, err = rsa.EncryptPKCS1v15(cryptoRand.Reader, agent.pubKey, jsonbuf)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	var requestBody bytes.Buffer
@@ -411,7 +459,7 @@ func (agent *Agent) MainLoop() {
 				return
 			case <-reportTicker.C:
 				mu.Lock()
-				err := misc.RetriableErrorHandler(agent.SendMetricsParallel)
+				err := misc.RetriableErrorHandler(agent.SendMetricsConsistently)
 				mu.Unlock()
 				if err != nil {
 					log.Println("error send data to server. agent down.")
