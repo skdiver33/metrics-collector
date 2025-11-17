@@ -53,19 +53,18 @@ func (storage *SQLStorage) InitializeConnection() error {
 
 func (storage *SQLStorage) InitializeDB() error {
 	createTableString := "CREATE TABLE IF NOT EXISTS metrics (id VARCHAR(100) PRIMARY KEY, type VARCHAR(100) NOT NULL, delta bigint NULL, value double precision NULL);"
+
 	requestFunc := func() error {
 		_, err := storage.db.Exec(createTableString)
 		return err
 	}
-
-	err := misc.RetriableErrorHandler(requestFunc)
+	baseCtx := context.Background()
+	err := misc.RetriableErrorHandler(baseCtx, requestFunc)
 
 	if err != nil {
 		storage.CloseConnection()
 		return err
 	}
-
-	baseCtx := context.Background()
 
 	for _, metricsName := range models.GaugeMetricsNames {
 		val := 0.0
@@ -100,7 +99,7 @@ func (storage *SQLStorage) AddMetrics(ctx context.Context, metrics models.Metric
 		_, err := storage.db.ExecContext(ctxWithTO, "INSERT INTO metrics (id, type,delta,value) VALUES ($1, $2,$3,$4) ON CONFLICT DO NOTHING", metrics.ID, metrics.MType, metrics.Delta, metrics.Value)
 		return err
 	}
-	err := misc.RetriableErrorHandler(retryFunc)
+	err := misc.RetriableErrorHandler(ctxWithTO, retryFunc)
 
 	if err != nil {
 		storage.CloseConnection()
@@ -115,7 +114,7 @@ func (storage *SQLStorage) UpdateMetrics(ctx context.Context, metrics models.Met
 		_, err := storage.db.ExecContext(ctxWithTO, "UPDATE metrics SET delta = $1,value = $2 WHERE id = $3", metrics.Delta, metrics.Value, metrics.ID)
 		return err
 	}
-	err := misc.RetriableErrorHandler(retryFunc)
+	err := misc.RetriableErrorHandler(ctxWithTO, retryFunc)
 	if err != nil {
 		storage.CloseConnection()
 		return err

@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	_ "net/http/pprof"
@@ -30,17 +34,38 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
+	retCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	defer stop()
+
 	if server.Config.StorageDumpPath != "" {
-		go func() {
-			for {
-				time.Sleep(time.Duration(server.Config.StoreInterval) * time.Second)
-				server.WriteStorageDump()
+		go func(ctx context.Context) {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				for {
+					time.Sleep(time.Duration(server.Config.StoreInterval) * time.Second)
+					server.WriteStorageDump()
+				}
 			}
-		}()
+		}(retCtx)
 	}
 
-	if err := http.ListenAndServe(server.Config.ListenAddress, server.HandlersRouter); err != nil {
-		panic(err.Error())
+	srv := &http.Server{
+		Addr:    server.Config.ListenAddress,
+		Handler: server.HandlersRouter,
 	}
-
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			panic(err.Error())
+		}
+	}()
+	<-retCtx.Done()
+	stop()
+	log.Println("Server shutdowning....")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(5)*time.Second)
+	defer cancel()
+	srv.Shutdown(shutdownCtx)
+	server.Storage.CloseConnection()
+	log.Println("Server stop")
 }

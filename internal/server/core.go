@@ -11,7 +11,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"flag"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -41,7 +40,6 @@ func newServerConfig() *ServerConfig {
 	serverConfig := ServerConfig{}
 	var configPath string
 
-	fmt.Println(os.Args[1:])
 	serverFlags := flag.NewFlagSet("Server config flags", 0)
 	serverFlags.StringVar(&serverConfig.ListenAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
 	serverFlags.UintVar(&serverConfig.StoreInterval, "i", 10, "store interval in seconds. default 300.")

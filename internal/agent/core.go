@@ -16,9 +16,11 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"os"
+	"os/signal"
 	"reflect"
 	"runtime"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ilyakaznacheev/cleanenv"
@@ -376,14 +378,18 @@ func (agent *Agent) MainLoop() {
 	defer reportTicker.Stop()
 
 	done := make(chan bool)
+
+	termCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
-
+		defer wg.Done()
 		for {
 			select {
+			case <-termCtx.Done():
+				return
 			case <-done:
-				wg.Done()
 				return
 			case <-poolTicker.C:
 				mu.Lock()
@@ -392,28 +398,12 @@ func (agent *Agent) MainLoop() {
 					close(done)
 					return
 				}
-				mu.Unlock()
-			}
-		}
-
-	}()
-	wg.Add(1)
-	go func() {
-
-		for {
-			select {
-			case <-done:
-				wg.Done()
-				return
-			case <-poolTicker.C:
-				mu.Lock()
 				if err := agent.RuntimeMetricsUpdate(); err != nil {
 					log.Printf("error runtime update metrics. error: %s", err.Error())
 					close(done)
 					return
 				}
 				mu.Unlock()
-
 			}
 		}
 
@@ -421,20 +411,20 @@ func (agent *Agent) MainLoop() {
 
 	wg.Add(1)
 	go func() {
-
+		defer wg.Done()
 		for {
 			select {
+			case <-termCtx.Done():
+				return
 			case <-done:
-				wg.Done()
 				return
 			case <-reportTicker.C:
 				mu.Lock()
-				err := misc.RetriableErrorHandler(agent.SendMetricsConsistently)
+				err := misc.RetriableErrorHandler(termCtx, agent.SendMetricsConsistently)
 				mu.Unlock()
 				if err != nil {
 					log.Println("error send data to server. agent down.")
 					close(done)
-					wg.Done()
 					return
 				}
 
