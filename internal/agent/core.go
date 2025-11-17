@@ -433,4 +433,5 @@ func (agent *Agent) MainLoop() {
 
 	}()
 	wg.Wait()
+	log.Println("Agent shutdown.")
 }
