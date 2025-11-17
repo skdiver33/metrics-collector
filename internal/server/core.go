@@ -11,10 +11,10 @@ import (
 	"encoding/pem"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 
 	chi "github.com/go-chi/chi/v5"
 	"github.com/ilyakaznacheev/cleanenv"
@@ -25,32 +25,24 @@ import (
 // ServerConfig - структура с конфигурацией сервера.
 // generate:reset
 type ServerConfig struct {
-	ListenAddress   string
-	StoreInterval   uint
-	StorageDumpPath string
-	IsDumpRestore   bool
-	SQLDBAddress    string
-	SigningKey      string
-	AuditURL        string
-	AuditFile       string
-	keyFile         string
+	ListenAddress   string `json:"address" env:"ADDRESS"`
+	StoreInterval   uint   `json:"store_interval" env:"STORE_INTERVAL"`
+	StorageDumpPath string `json:"store_file" env:"FILE_STORAGE_PATH"`
+	IsDumpRestore   bool   `json:"restore" env:"RESTORE"`
+	SQLDBAddress    string `json:"database_dsn" env:"DATABASE_DSN"`
+	SigningKey      string `env:"KEY"`
+	AuditURL        string `env:"AUDIT_URL"`
+	AuditFile       string `env:"AUDIT_FILE"`
+	KeyFile         string `json:"crypto_key" env:"CRYPTO_KEY"`
 }
 
 func newServerConfig() *ServerConfig {
-	type ConfigDatabase struct {
-		Port     string `yaml:"port" env:"PORT" env-default:"5432"`
-		Host     string `yaml:"host" env:"HOST" env-default:"localhost"`
-		Name     string `yaml:"name" env:"NAME" env-default:"postgres"`
-		User     string `yaml:"user" env:"USER" env-default:"user"`
-		Password string `yaml:"password" env:"PASSWORD"`
-	}
-
-	var cfg ConfigDatabase
-
-	cleanenv.ReadConfig("config.yml", &cfg)
 
 	serverConfig := ServerConfig{}
-	serverFlags := flag.NewFlagSet("Server config flags", flag.ContinueOnError)
+	var configPath string
+
+	fmt.Println(os.Args[1:])
+	serverFlags := flag.NewFlagSet("Server config flags", 0)
 	serverFlags.StringVar(&serverConfig.ListenAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
 	serverFlags.UintVar(&serverConfig.StoreInterval, "i", 10, "store interval in seconds. default 300.")
 	serverFlags.StringVar(&serverConfig.StorageDumpPath, "f", "", "path to file for storage dump. Default empty and disable.")
@@ -59,59 +51,22 @@ func newServerConfig() *ServerConfig {
 	serverFlags.BoolVar(&serverConfig.IsDumpRestore, "r", false, "use dump for restore storage state")
 	serverFlags.StringVar(&serverConfig.AuditFile, "audit-file", "", "filename for audit file. Default empty")
 	serverFlags.StringVar(&serverConfig.AuditURL, "audit-url", "", "url for audit service. Default empty")
-	serverFlags.StringVar(&serverConfig.keyFile, "crypto-key", "../../keys/private.pem", "private key path. Default empty")
+	serverFlags.StringVar(&serverConfig.KeyFile, "crypto-key", "", "private key path. Default empty")
+	serverFlags.StringVar(&configPath, "c", "", "path to config file")
+	serverFlags.StringVar(&configPath, "config", "", "path to config file")
 	serverFlags.Parse(os.Args[1:])
 
-	envServerAddr, ok := os.LookupEnv("ADDRESS")
-	if ok {
-		serverConfig.ListenAddress = envServerAddr
+	if confPath, ok := os.LookupEnv("CONFIG"); ok {
+		configPath = confPath
 	}
-
-	envSigningKey, ok := os.LookupEnv("KEY")
-	if ok {
-		serverConfig.SigningKey = envSigningKey
-	}
-	envKeyFile, ok := os.LookupEnv("CRYPTO_KEY")
-	if ok {
-		serverConfig.keyFile = envKeyFile
-	}
-
-	envStoreINterval, ok := os.LookupEnv("STORE_INTERVAL")
-	if ok {
-		interval, err := strconv.ParseUint(envStoreINterval, 10, 32)
+	if len(configPath) != 0 {
+		err := cleanenv.ReadConfig(configPath, &serverConfig)
 		if err != nil {
-			panic("can`t convert STORE_INTERVAL env variable")
+			log.Printf("error read config file. %s", err.Error())
 		}
-		serverConfig.StoreInterval = uint(interval)
 	}
-
-	envFileStoragePAth, ok := os.LookupEnv("FILE_STORAGE_PATH")
-	if ok {
-		serverConfig.StorageDumpPath = envFileStoragePAth
-	}
-
-	envIsRestoreFlag, ok := os.LookupEnv("RESTORE")
-	if ok {
-		isRestore, err := strconv.ParseBool(envIsRestoreFlag)
-		if err != nil {
-			panic("can`t convert RESTORE env variable")
-		}
-		serverConfig.IsDumpRestore = isRestore
-	}
-
-	envDBAddr, ok := os.LookupEnv("DATABASE_DSN")
-	if ok {
-		serverConfig.SQLDBAddress = envDBAddr
-	}
-	envAuditFile, ok := os.LookupEnv("AUDIT_FILE")
-	if ok {
-		serverConfig.AuditFile = envAuditFile
-	}
-	envAuditURL, ok := os.LookupEnv("AUDIT_URL")
-	if ok {
-		serverConfig.AuditURL = envAuditURL
-
-	}
+	serverFlags.Parse(os.Args[1:])
+	cleanenv.ReadEnv(&serverConfig)
 
 	return &serverConfig
 }
@@ -185,8 +140,8 @@ func NewServer() (*Server, error) {
 		newHandler.auditor.Register(uo)
 	}
 
-	if newServer.Config.keyFile != "" {
-		newHandler.privateKey, err = readPrivateKey(newServerConfig().keyFile)
+	if newServer.Config.KeyFile != "" {
+		newHandler.privateKey, err = readPrivateKey(newServerConfig().KeyFile)
 		if err != nil {
 			return nil, err
 		}
