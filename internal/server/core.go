@@ -17,6 +17,7 @@ import (
 	"strconv"
 
 	chi "github.com/go-chi/chi/v5"
+	"github.com/ilyakaznacheev/cleanenv"
 	"github.com/skdiver33/metrics-collector/internal/audit"
 	"github.com/skdiver33/metrics-collector/internal/store"
 )
@@ -36,6 +37,17 @@ type ServerConfig struct {
 }
 
 func newServerConfig() *ServerConfig {
+	type ConfigDatabase struct {
+		Port     string `yaml:"port" env:"PORT" env-default:"5432"`
+		Host     string `yaml:"host" env:"HOST" env-default:"localhost"`
+		Name     string `yaml:"name" env:"NAME" env-default:"postgres"`
+		User     string `yaml:"user" env:"USER" env-default:"user"`
+		Password string `yaml:"password" env:"PASSWORD"`
+	}
+
+	var cfg ConfigDatabase
+
+	cleanenv.ReadConfig("config.yml", &cfg)
 
 	serverConfig := ServerConfig{}
 	serverFlags := flag.NewFlagSet("Server config flags", flag.ContinueOnError)
