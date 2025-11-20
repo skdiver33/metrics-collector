@@ -32,20 +32,21 @@ func main() {
 
 	server, err := server.NewServer()
 	if err != nil {
-		panic(err.Error())
+		log.Fatal(err.Error())
 	}
 	retCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer stop()
 
 	if server.Config.StorageDumpPath != "" {
+		writeTicker := time.NewTicker(time.Duration(server.Config.StoreInterval) * time.Second)
+		defer writeTicker.Stop()
 		go func(ctx context.Context) {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				for {
-					time.Sleep(time.Duration(server.Config.StoreInterval) * time.Second)
+			for {
+				select {
+				case <-writeTicker.C:
 					server.WriteStorageDump()
+				case <-ctx.Done():
+					return
 				}
 			}
 		}(retCtx)
@@ -57,7 +58,7 @@ func main() {
 	}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			panic(err.Error())
+			log.Fatal(err.Error())
 		}
 	}()
 	<-retCtx.Done()

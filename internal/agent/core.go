@@ -228,7 +228,7 @@ func (agent *Agent) SendJSONMetrics(metrics *models.Metrics) error {
 	if agent.config.KeyFile != "" {
 		buf, err = rsa.EncryptPKCS1v15(cryptoRand.Reader, agent.pubKey, jsonbuf)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 	}
 

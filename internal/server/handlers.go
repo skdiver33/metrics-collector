@@ -8,7 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
-	"fmt"
+	"html/template"
 	"io"
 	"log"
 	"net/http"
@@ -193,7 +193,22 @@ func (handler *MetricsHandler) GetJSONMetrics(rw http.ResponseWriter, request *h
 // Ответ отправляется в формате JSON.
 // Тип запроса - GET,  URL запроса: /
 func (handler *MetricsHandler) GetAllMetrics(rw http.ResponseWriter, request *http.Request) {
-	answer := "<!DOCTYPE html>\n<html>\n<head>\n<title> Known metrics </title>\n</head>\n<body>\n"
+
+	answerTmpl := `<!DOCTYPE html>
+<html>
+<body>
+<h1>Known metrics</h1>
+{{ range .}} 
+<p>{{ .ID}}  {{.MType}} {{.GetMetricsValue}} </p>
+{{end}}
+</body>
+</html>
+`
+	bodyTmpl, err := template.New("tmpl").Parse(answerTmpl)
+	if err != nil {
+		panic(err)
+	}
+
 	metrics := handler.metricsStorage.GetAllMetrics(request.Context())
 	if metrics == nil {
 		log.Print("error get metrics form storage in GetAllMetrics")
@@ -201,13 +216,13 @@ func (handler *MetricsHandler) GetAllMetrics(rw http.ResponseWriter, request *ht
 		return
 	}
 
-	for _, curMetr := range *metrics {
-		answer = fmt.Sprintf("%s<p>%s %s %s </p>\n", answer, curMetr.ID, curMetr.MType, curMetr.GetMetricsValue())
+	var answer bytes.Buffer
+	err = bodyTmpl.Execute(&answer, metrics)
+	if err != nil {
+		log.Printf("%s", err.Error())
 	}
-	answer += "</body>\n</html>"
-
 	rw.Header().Set("Content-type", "text/html")
-	rw.Write([]byte(answer))
+	rw.Write(answer.Bytes())
 }
 
 // PingDB - обработчик позволяющий проверить подключение к БД, при использовании ее в качестве хранилища.
@@ -312,7 +327,6 @@ func (w SignigWriter) Write(b []byte) (int, error) {
 		hash := misc.GetRequestHash(b, w.key)
 		w.Header().Set("HashSHA256", hash)
 	}
-	//	w.WriteHeader(http.StatusOK)
 	return w.ResponseWriter.Write(b)
 
 }
@@ -346,21 +360,28 @@ func (handler *MetricsHandler) SigningHandle(next http.Handler) http.Handler {
 
 type gzipWriter struct {
 	http.ResponseWriter
-	Writer io.Writer
 }
 
 func (w gzipWriter) Write(b []byte) (int, error) {
+
 	typeForGzip := []string{"application/json", "text/html"}
 	contentTypes := strings.Join(w.Header().Values("Content-Type"), " ")
 	if len(b) > 4096 {
 		for _, value := range typeForGzip {
 			if strings.Contains(contentTypes, value) {
+				gz, err := gzip.NewWriterLevel(w.ResponseWriter, gzip.BestSpeed)
+				if err != nil {
+					log.Printf("error create zip object:%s", err.Error())
+					break
+				}
+				defer gz.Close()
 				w.Header().Set("Content-Encoding", "gzip")
-				//w.WriteHeader(http.StatusOK)
-				return w.Writer.Write(b)
+
+				return gz.Write(b)
 			}
 		}
 	}
+
 	return w.ResponseWriter.Write(b)
 }
 
@@ -389,14 +410,9 @@ func (handler *MetricsHandler) GzipHandle(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
-		if err != nil {
-			io.WriteString(w, err.Error())
-			return
-		}
-		defer gz.Close()
 
-		next.ServeHTTP(gzipWriter{ResponseWriter: w, Writer: gz}, r)
+		next.ServeHTTP(gzipWriter{ResponseWriter: w}, r)
+
 	})
 }
 
@@ -413,7 +429,9 @@ func (handler *MetricsHandler) DecryptHandle(next http.Handler) http.Handler {
 			}
 			decryptedMessage, err := rsa.DecryptPKCS1v15(rand.Reader, handler.privateKey, cryptBody)
 			if err != nil {
-				log.Fatal(err)
+				log.Printf("error decrypt message:%s", err.Error())
+				w.WriteHeader(http.StatusInternalServerError)
+				return
 			}
 			r.Body = io.NopCloser(bytes.NewReader(decryptedMessage))
 			r.ContentLength = int64(len(decryptedMessage))

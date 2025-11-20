@@ -103,14 +103,14 @@ func NewServer() (*Server, error) {
 	if newServer.Config.SQLDBAddress != "" {
 		newStorage, err := store.NewSQLStorage(newServer.Config.SQLDBAddress)
 		if err != nil {
-			log.Fatalf("error initialize storage in server %s", err.Error())
+			return nil, err
 		}
 		newServer.Storage = newStorage
 
 	} else {
 		newStorage, err := store.NewMemStorage()
 		if err != nil {
-			log.Fatalf("error initialize storage in server %s", err.Error())
+			return nil, err
 		}
 		newServer.Storage = newStorage
 	}
@@ -120,7 +120,7 @@ func NewServer() (*Server, error) {
 	}
 
 	if newServer.Storage == nil {
-		log.Fatalf("fatal error. service storage nil, after creation")
+		return nil, errors.New("fatal error. service storage nil, after creation")
 	}
 
 	newHandler, err := NewMetricsHandler(newServer.Storage)

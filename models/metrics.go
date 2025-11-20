@@ -23,7 +23,7 @@ type Metrics struct {
 	Hash  string   `json:"hash,omitempty"`
 }
 
-func (metrics *Metrics) GetMetricsValue() string {
+func (metrics Metrics) GetMetricsValue() string {
 	value := ""
 	switch metrics.MType {
 	case Counter:
