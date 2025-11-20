@@ -14,6 +14,7 @@ type StorageInterface interface {
 	UpdateAllMetrics(ctx context.Context, allMetrics *[]models.Metrics) error
 	CreateDBDump(ctx context.Context, filename string)
 	RestoreDBDump(ctx context.Context, filename string)
+	CloseConnection()
 }
 
 type DBInterface interface {

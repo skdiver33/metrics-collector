@@ -1,3 +1,4 @@
+// Package models описывает используемые в проекте модели данных.
 package models
 
 import (
@@ -10,8 +11,7 @@ const (
 	Gauge   = "gauge"
 )
 
-// NOTE: Не усложняем пример, вводя иерархическую вложенность структур.
-// Органичиваясь плоской моделью.
+// Metrics - модель метрики
 // Delta и Value объявлены через указатели,
 // что бы отличать значение "0", от не заданного значения
 // и соответственно не кодировать в структуру.
@@ -23,7 +23,7 @@ type Metrics struct {
 	Hash  string   `json:"hash,omitempty"`
 }
 
-func (metrics *Metrics) GetMetricsValue() string {
+func (metrics Metrics) GetMetricsValue() string {
 	value := ""
 	switch metrics.MType {
 	case Counter:
