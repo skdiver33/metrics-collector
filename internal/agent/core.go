@@ -14,11 +14,13 @@ import (
 	"fmt"
 	"log"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"reflect"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -47,6 +49,7 @@ type AgentConfig struct {
 	KeyFile        string `json:"crypto_key" env:"CRYPTO_KEY"`
 	SigningKey     string `env:"KEY"`
 	RateLimit      uint   `env:"RATE_LIMIT"`
+	localIP        string
 }
 
 func NewAgentConfig() (*AgentConfig, error) {
@@ -54,7 +57,7 @@ func NewAgentConfig() (*AgentConfig, error) {
 	newConfig := AgentConfig{}
 	var configPath string
 	agentFlags := flag.NewFlagSet("Agent flags", flag.ContinueOnError)
-	agentFlags.StringVar(&newConfig.ServerAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
+	agentFlags.StringVar(&newConfig.ServerAddress, "a", ":8080", "adress for start server in form ip:port. default localhost:8080")
 	agentFlags.UintVar(&newConfig.ReportInterval, "r", 10, "report interval in seconds. default 10.")
 	agentFlags.UintVar(&newConfig.PollInterval, "p", 2, "poll interval in seconds. default 2.")
 	agentFlags.StringVar(&newConfig.SigningKey, "k", "", "key for signing data")
@@ -80,6 +83,17 @@ func NewAgentConfig() (*AgentConfig, error) {
 	return &newConfig, nil
 }
 
+func getLocalIP(srvAddr string) (string, error) {
+	conn, err := net.Dial("tcp", srvAddr)
+	if err != nil {
+		fmt.Println(err)
+		return "", err
+	}
+	defer conn.Close()
+	addr := conn.LocalAddr()
+	return addr.String(), nil
+}
+
 func NewAgent(storage store.StorageInterface) (*Agent, error) {
 
 	newAgent := Agent{}
@@ -94,6 +108,17 @@ func NewAgent(storage store.StorageInterface) (*Agent, error) {
 			return nil, err
 		}
 	}
+
+	addr, err := getLocalIP(newAgent.config.ServerAddress)
+	if err != nil {
+		log.Println("server not available")
+		return nil, err
+	}
+	ip, _, ok := strings.Cut(addr, ":")
+	if !ok {
+		return nil, errors.New("error fetch local ip address")
+	}
+	newAgent.config.localIP = ip
 	return &newAgent, nil
 }
 
@@ -220,13 +245,12 @@ func (agent *Agent) SendJSONMetrics(metrics *models.Metrics) error {
 	tr := &http.Transport{}
 	client := &http.Client{Transport: tr}
 
-	jsonbuf, err := json.Marshal(metrics)
+	buf, err := json.Marshal(metrics)
 	if err != nil {
 		return fmt.Errorf("error marshal metrics to JSON. error: %w", err)
 	}
-	buf := make([]byte, len(jsonbuf))
 	if agent.config.KeyFile != "" {
-		buf, err = rsa.EncryptPKCS1v15(cryptoRand.Reader, agent.pubKey, jsonbuf)
+		buf, err = rsa.EncryptPKCS1v15(cryptoRand.Reader, agent.pubKey, buf)
 		if err != nil {
 			return err
 		}
@@ -258,6 +282,7 @@ func (agent *Agent) SendJSONMetrics(metrics *models.Metrics) error {
 		bodyHash := misc.GetRequestHash(requestBody.Bytes(), agent.config.SigningKey)
 		req.Header.Set("HashSHA256", bodyHash)
 	}
+	req.Header.Set("X-Real-IP", agent.config.localIP)
 	response, err := client.Do(req)
 
 	if err != nil {
@@ -303,6 +328,7 @@ func (agent *Agent) SendBunchMetrics() error {
 		bodyHash := misc.GetRequestHash(requestBody.Bytes(), agent.config.SigningKey)
 		req.Header.Set("HashSHA256", bodyHash)
 	}
+	req.Header.Set("X-Real-IP", agent.config.localIP)
 	response, err := client.Do(req)
 	if err != nil {
 		return misc.NewRetrialableError(err)
@@ -369,6 +395,7 @@ func (agent *Agent) SendMetricsParallel() error {
 }
 
 func (agent *Agent) MainLoop() {
+
 	var mu sync.Mutex
 
 	poolTicker := time.NewTicker(time.Duration(agent.config.PollInterval) * time.Second)

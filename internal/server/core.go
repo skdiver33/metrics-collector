@@ -12,6 +12,7 @@ import (
 	"errors"
 	"flag"
 	"log"
+	"net"
 	"net/http"
 	"os"
 
@@ -33,6 +34,7 @@ type ServerConfig struct {
 	AuditURL        string `env:"AUDIT_URL"`
 	AuditFile       string `env:"AUDIT_FILE"`
 	KeyFile         string `json:"crypto_key" env:"CRYPTO_KEY"`
+	TrustedSubnet   string `json:"trusted_subnet" env:"TRUSTED_SUBNET"`
 }
 
 func newServerConfig() *ServerConfig {
@@ -50,6 +52,7 @@ func newServerConfig() *ServerConfig {
 	serverFlags.StringVar(&serverConfig.AuditFile, "audit-file", "", "filename for audit file. Default empty")
 	serverFlags.StringVar(&serverConfig.AuditURL, "audit-url", "", "url for audit service. Default empty")
 	serverFlags.StringVar(&serverConfig.KeyFile, "crypto-key", "", "private key path. Default empty")
+	serverFlags.StringVar(&serverConfig.TrustedSubnet, "t", "", "trusted subnet")
 	serverFlags.StringVar(&configPath, "c", "", "path to config file")
 	serverFlags.StringVar(&configPath, "config", "", "path to config file")
 	serverFlags.Parse(os.Args[1:])
@@ -138,6 +141,14 @@ func NewServer() (*Server, error) {
 		newHandler.auditor.Register(uo)
 	}
 
+	if newServer.Config.TrustedSubnet != "" {
+		_, ipNet, err := net.ParseCIDR(newServerConfig().TrustedSubnet)
+		if err != nil {
+			return nil, err
+		}
+		newHandler.trustNet = ipNet
+	}
+
 	if newServer.Config.KeyFile != "" {
 		newHandler.privateKey, err = readPrivateKey(newServerConfig().KeyFile)
 		if err != nil {
@@ -148,6 +159,7 @@ func NewServer() (*Server, error) {
 	newHandler.signingKey = newServer.Config.SigningKey
 
 	newRouter := chi.NewRouter()
+	newRouter.Use(newHandler.CheckingIpOnTrust)
 	newRouter.Use(newHandler.RequestLogger)
 	newRouter.Use(newHandler.SigningHandle)
 	newRouter.Use(newHandler.GzipHandle)

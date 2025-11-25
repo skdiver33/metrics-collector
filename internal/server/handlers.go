@@ -11,6 +11,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -30,6 +31,7 @@ type MetricsHandler struct {
 	signingKey     string
 	auditor        *audit.AuditEvent
 	privateKey     *rsa.PrivateKey
+	trustNet       *net.IPNet
 }
 
 // NewMetricsHandler - создает новый обработчик запросов, взаимодеййствующий с переданным хранилищем.
@@ -435,6 +437,28 @@ func (handler *MetricsHandler) DecryptHandle(next http.Handler) http.Handler {
 			}
 			r.Body = io.NopCloser(bytes.NewReader(decryptedMessage))
 			r.ContentLength = int64(len(decryptedMessage))
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+//********************** Checking request ip on trust *******************************************
+
+func (handler *MetricsHandler) CheckingIpOnTrust(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if handler.trustNet != nil {
+			agentIP := r.Header.Get("X-Real-IP")
+			if agentIP == "" {
+				log.Printf("X-Real-IP is empty string.Request forrbiden.")
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			ip := net.ParseIP(agentIP)
+			if !handler.trustNet.Contains(ip) {
+				log.Printf("agent ip not in trusted network. Request forrbiden.")
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
 		}
 		next.ServeHTTP(w, r)
 	})
