@@ -93,8 +93,8 @@ func NewAgentConfig() (*AgentConfig, error) {
 func getLocalIP(srvAddr string) (string, error) {
 	conn, err := net.Dial("tcp", srvAddr)
 	if err != nil {
-		fmt.Println(err)
-		return "", err
+		log.Println("error get local ip")
+		return "", fmt.Errorf("error get ip: %w", err)
 	}
 	defer conn.Close()
 	addr := conn.LocalAddr()

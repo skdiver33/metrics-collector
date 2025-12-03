@@ -19,3 +19,9 @@ Showing nodes accounting for -544.67kB, 27.34% of 1991.92kB total
          0     0% 27.34%  -544.67kB 27.34%  net/http.(*conn).serve  
          0     0% 27.34%  -544.67kB 27.34%  net/http.HandlerFunc.ServeHTTP  
          0     0% 27.34%  -544.67kB 27.34%  net/http.serverHandler.ServeHTTP  ```
+
+
+Для компиляции proto файла в дирректории internals необходимо выполнить команду:
+```
+protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out= --go-grpc_opt=paths=source_relative --go_opt=default_api_level=API_OPAQUE  proto/metrics.proto
+```

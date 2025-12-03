@@ -35,6 +35,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err.Error())
 	}
+
 	retCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer stop()
 
@@ -59,13 +60,16 @@ func main() {
 	}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal(err.Error())
+			log.Printf("error start http server: %s\n", err.Error())
+			stop()
 		}
 	}()
 	grpcServer := grpcserver.NewMetricsServer(server.Config, server.Storage)
 	go func() {
+		time.Sleep(time.Second)
 		if err := grpcServer.Run(); err != nil {
-			log.Fatal(err.Error())
+			log.Printf("error start grpc server: %s\n", err.Error())
+			stop()
 		}
 	}()
 	<-retCtx.Done()

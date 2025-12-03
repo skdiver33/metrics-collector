@@ -112,6 +112,9 @@ func (ms *MetricsServer) Run() error {
 }
 
 func (ms *MetricsServer) Stop() {
-	log.Println("grpc server stoped")
-	ms.grpcSrv.GracefulStop()
+
+	if ms.grpcSrv != nil {
+		ms.grpcSrv.GracefulStop()
+		log.Println("grpc server stoped")
+	}
 }
