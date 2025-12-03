@@ -1,29 +1,40 @@
+// Модуль handlers содержит обработчики входящих запросов, middlewares используемые сервером.
+
 package server
 
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
-	"fmt"
+	"html/template"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	audit "github.com/skdiver33/metrics-collector/internal/audit"
 	"github.com/skdiver33/metrics-collector/internal/misc"
 	"github.com/skdiver33/metrics-collector/internal/store"
 	"github.com/skdiver33/metrics-collector/models"
 	"go.uber.org/zap"
 )
 
+// MetricsHandler - описывает обобщенный обработчик запросов. Обработчик может выполнять логгирование запросов, взаимодействует с храниоищем метрик, позволяет выполнять шифрование данных.
 type MetricsHandler struct {
 	metricsStorage store.StorageInterface
 	logger         *zap.SugaredLogger
 	signingKey     string
+	auditor        *audit.AuditEvent
+	privateKey     *rsa.PrivateKey
+	trustNet       *net.IPNet
 }
 
+// NewMetricsHandler - создает новый обработчик запросов, взаимодеййствующий с переданным хранилищем.
 func NewMetricsHandler(storage store.StorageInterface) (*MetricsHandler, error) {
 	newHandler := MetricsHandler{}
 	newHandler.metricsStorage = storage
@@ -33,12 +44,15 @@ func NewMetricsHandler(storage store.StorageInterface) (*MetricsHandler, error) 
 	}
 	defer logger.Sync()
 	newHandler.logger = logger.Sugar()
+	newHandler.auditor = audit.NewAuditEvent()
 
 	return &newHandler, nil
 }
 
 //****************************** Endpoint Handlers **************************************
 
+// SetMetrics - метод устанавливающий значение метрики переданной в параметрах запроса.
+// Тип запроса - POST,  URL запроса: /update/metricsType/metricsName/metricsValue
 func (handler *MetricsHandler) SetMetrics(rw http.ResponseWriter, request *http.Request) {
 
 	metricsType := chi.URLParam(request, "metricsType")
@@ -68,9 +82,17 @@ func (handler *MetricsHandler) SetMetrics(rw http.ResponseWriter, request *http.
 		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}
+	auditData := make([]string, 0)
+	auditData = append(auditData, metricsName)
+	handler.auditor.Update(auditData, request.RemoteAddr)
+
 	rw.Header().Set("Content-type", "text/plain")
 	rw.WriteHeader(http.StatusOK)
+
 }
+
+// SetJSONMetrics - обработчик обновяющий значение метрики переданной в параметрах запроса. Метрика передается в формате JSON.
+// Тип запроса - POST,  URL запроса: /update
 
 func (handler *MetricsHandler) SetJSONMetrics(rw http.ResponseWriter, request *http.Request) {
 
@@ -117,10 +139,16 @@ func (handler *MetricsHandler) SetJSONMetrics(rw http.ResponseWriter, request *h
 		return
 	}
 
+	auditData := make([]string, 0)
+	auditData = append(auditData, receiveMetrics.ID)
+	handler.auditor.Update(auditData, request.RemoteAddr)
+
 	rw.Header().Set("Content-Type", "application/json")
 	rw.Write(resp)
 }
 
+// GetMetrics - обработчик позволяющий получить значение метрики. Название метрики передается в параметре запроса.
+// Тип запроса - GET,  URL запроса: /metricsType/metricsName
 func (handler *MetricsHandler) GetMetrics(rw http.ResponseWriter, request *http.Request) {
 	metricsName := chi.URLParam(request, "metricsName")
 	metrics, err := handler.metricsStorage.GetMetrics(request.Context(), metricsName)
@@ -134,6 +162,9 @@ func (handler *MetricsHandler) GetMetrics(rw http.ResponseWriter, request *http.
 	rw.Write([]byte(metrics.GetMetricsValue()))
 }
 
+// GetJSONMetrics - обработчик позволяющий получить значение метрики. Название метрики передается в параметре запроса.
+// Запрос передается в формате JSON. Ответ отправляется в формате JSON.
+// Тип запроса - POST,  URL запроса: /value/
 func (handler *MetricsHandler) GetJSONMetrics(rw http.ResponseWriter, request *http.Request) {
 
 	receiveMetrics := models.Metrics{}
@@ -160,8 +191,26 @@ func (handler *MetricsHandler) GetJSONMetrics(rw http.ResponseWriter, request *h
 	rw.Write(resp)
 }
 
+// GetAllMetrics - обработчик позволяющий получить все метрики, хранящиеся в хранилище.
+// Ответ отправляется в формате JSON.
+// Тип запроса - GET,  URL запроса: /
 func (handler *MetricsHandler) GetAllMetrics(rw http.ResponseWriter, request *http.Request) {
-	answer := "<!DOCTYPE html>\n<html>\n<head>\n<title> Known metrics </title>\n</head>\n<body\n>"
+
+	answerTmpl := `<!DOCTYPE html>
+<html>
+<body>
+<h1>Known metrics</h1>
+{{ range .}} 
+<p>{{ .ID}}  {{.MType}} {{.GetMetricsValue}} </p>
+{{end}}
+</body>
+</html>
+`
+	bodyTmpl, err := template.New("tmpl").Parse(answerTmpl)
+	if err != nil {
+		panic(err)
+	}
+
 	metrics := handler.metricsStorage.GetAllMetrics(request.Context())
 	if metrics == nil {
 		log.Print("error get metrics form storage in GetAllMetrics")
@@ -169,14 +218,18 @@ func (handler *MetricsHandler) GetAllMetrics(rw http.ResponseWriter, request *ht
 		return
 	}
 
-	for _, curMetr := range *metrics {
-		answer = fmt.Sprintf("<p>%s %s %s %s </p>\n", answer, curMetr.ID, curMetr.MType, curMetr.GetMetricsValue())
+	var answer bytes.Buffer
+	err = bodyTmpl.Execute(&answer, metrics)
+	if err != nil {
+		log.Printf("%s", err.Error())
 	}
-	answer += "</body>\n</html>"
-
 	rw.Header().Set("Content-type", "text/html")
-	rw.Write([]byte(answer))
+	rw.Write(answer.Bytes())
 }
+
+// PingDB - обработчик позволяющий проверить подключение к БД, при использовании ее в качестве хранилища.
+// При установки подключения к БД возвращается StatusCode = 200.
+// Тип запроса - GET,  URL запроса: /ping
 
 func (handler *MetricsHandler) PingDB(rw http.ResponseWriter, request *http.Request) {
 	switch value := handler.metricsStorage.(type) {
@@ -208,6 +261,12 @@ func (handler *MetricsHandler) SetBunchMetrics(rw http.ResponseWriter, request *
 		log.Printf("error update all metrics in storage %s", err.Error())
 		http.Error(rw, "", http.StatusBadRequest)
 	}
+
+	auditData := make([]string, 0)
+	for _, metric := range receiveMetrics {
+		auditData = append(auditData, metric.ID)
+	}
+	handler.auditor.Update(auditData, request.RemoteAddr)
 
 	rw.Header().Set("Content-type", "text/plain")
 	rw.WriteHeader(http.StatusOK)
@@ -270,7 +329,6 @@ func (w SignigWriter) Write(b []byte) (int, error) {
 		hash := misc.GetRequestHash(b, w.key)
 		w.Header().Set("HashSHA256", hash)
 	}
-	//	w.WriteHeader(http.StatusOK)
 	return w.ResponseWriter.Write(b)
 
 }
@@ -304,19 +362,28 @@ func (handler *MetricsHandler) SigningHandle(next http.Handler) http.Handler {
 
 type gzipWriter struct {
 	http.ResponseWriter
-	Writer io.Writer
 }
 
 func (w gzipWriter) Write(b []byte) (int, error) {
+
 	typeForGzip := []string{"application/json", "text/html"}
 	contentTypes := strings.Join(w.Header().Values("Content-Type"), " ")
-	for _, value := range typeForGzip {
-		if strings.Contains(contentTypes, value) {
-			w.Header().Set("Content-Encoding", "gzip")
-			//w.WriteHeader(http.StatusOK)
-			return w.Writer.Write(b)
+	if len(b) > 4096 {
+		for _, value := range typeForGzip {
+			if strings.Contains(contentTypes, value) {
+				gz, err := gzip.NewWriterLevel(w.ResponseWriter, gzip.BestSpeed)
+				if err != nil {
+					log.Printf("error create zip object:%s", err.Error())
+					break
+				}
+				defer gz.Close()
+				w.Header().Set("Content-Encoding", "gzip")
+
+				return gz.Write(b)
+			}
 		}
 	}
+
 	return w.ResponseWriter.Write(b)
 }
 
@@ -345,14 +412,55 @@ func (handler *MetricsHandler) GzipHandle(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
-		if err != nil {
-			io.WriteString(w, err.Error())
-			return
-		}
-		defer gz.Close()
 
-		next.ServeHTTP(gzipWriter{ResponseWriter: w, Writer: gz}, r)
+		next.ServeHTTP(gzipWriter{ResponseWriter: w}, r)
+
+	})
+}
+
+//********************** Message Decryption Handler *******************************************
+
+func (handler *MetricsHandler) DecryptHandle(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		if handler.privateKey != nil && r.ContentLength > 0 {
+			cryptBody, err := io.ReadAll(r.Body)
+			if err != nil {
+				log.Println("error read encrypt data")
+				return
+			}
+			decryptedMessage, err := rsa.DecryptPKCS1v15(rand.Reader, handler.privateKey, cryptBody)
+			if err != nil {
+				log.Printf("error decrypt message:%s", err.Error())
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(decryptedMessage))
+			r.ContentLength = int64(len(decryptedMessage))
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+//********************** Checking request ip on trust *******************************************
+
+func (handler *MetricsHandler) CheckingIpOnTrust(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if handler.trustNet != nil {
+			agentIP := r.Header.Get("X-Real-IP")
+			if agentIP == "" {
+				log.Printf("X-Real-IP is empty string.Request forrbiden.")
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			ip := net.ParseIP(agentIP)
+			if !handler.trustNet.Contains(ip) {
+				log.Printf("agent ip not in trusted network. Request forrbiden.")
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 

@@ -1,97 +1,104 @@
+// Package agent содержит реализацию агента сбора метрик.
 package agent
 
 import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"reflect"
 	"runtime"
-	"strconv"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 
+	"github.com/ilyakaznacheev/cleanenv"
 	"github.com/skdiver33/metrics-collector/internal/misc"
 	"github.com/skdiver33/metrics-collector/internal/store"
 
 	"github.com/shirou/gopsutil/v4/load"
 	"github.com/shirou/gopsutil/v4/mem"
+	pb "github.com/skdiver33/metrics-collector/internal/proto"
 	"github.com/skdiver33/metrics-collector/models"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+
+	cryptoRand "crypto/rand"
 )
 
 type Agent struct {
 	metricStorage store.StorageInterface
 	config        *AgentConfig
+	pubKey        *rsa.PublicKey
 }
 
 type AgentConfig struct {
-	serverAddress  string
-	pollInterval   time.Duration
-	reportInterval time.Duration
-	signingKey     string
-	rateLimit      uint
+	ServerAddress     string `json:"address" env:"ADDRESS"`
+	GRPCServerAddress string `json:"grpc_addr" env:"GRPC_ADDRESS"`
+	PollInterval      uint   `json:"poll_interval" env:"POLL_INTERVAL"`
+	ReportInterval    uint   `json:"report_interval" env:"REPORT_INTERVAL"`
+	KeyFile           string `json:"crypto_key" env:"CRYPTO_KEY"`
+	SigningKey        string `env:"KEY"`
+	RateLimit         uint   `env:"RATE_LIMIT"`
+	localIP           string
 }
 
 func NewAgentConfig() (*AgentConfig, error) {
 
 	newConfig := AgentConfig{}
-
+	var configPath string
 	agentFlags := flag.NewFlagSet("Agent flags", flag.ContinueOnError)
-	agentFlags.StringVar(&newConfig.serverAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
-	interval := uint(0)
-	agentFlags.UintVar(&interval, "r", 10, "report interval in seconds. default 10.")
-	newConfig.reportInterval = time.Duration(interval) * time.Second
-	agentFlags.UintVar(&interval, "p", 2, "poll interval in seconds. default 2.")
-	newConfig.pollInterval = time.Duration(interval) * time.Second
-	agentFlags.StringVar(&newConfig.signingKey, "k", "", "key for signing data")
-	agentFlags.UintVar(&newConfig.rateLimit, "l", 4, "amount sendings threads. default 4.")
+	agentFlags.StringVar(&newConfig.ServerAddress, "a", ":8080", "adress for start server in form ip:port. default localhost:8080")
+	agentFlags.StringVar(&newConfig.GRPCServerAddress, "grpc", ":3080", "adress for GRPC-server. default localhost:3080")
+	agentFlags.UintVar(&newConfig.ReportInterval, "r", 10, "report interval in seconds. default 10.")
+	agentFlags.UintVar(&newConfig.PollInterval, "p", 2, "poll interval in seconds. default 2.")
+	agentFlags.StringVar(&newConfig.SigningKey, "k", "", "key for signing data")
+	agentFlags.UintVar(&newConfig.RateLimit, "l", 4, "amount sendings threads. default 4.")
+	agentFlags.StringVar(&newConfig.KeyFile, "crypto-key", "", "path to public key")
+	agentFlags.StringVar(&configPath, "c", "", "path to config file")
+	agentFlags.StringVar(&configPath, "config", "", "path to config file")
 	agentFlags.Parse(os.Args[1:])
 
-	envServerAddr, ok := os.LookupEnv("ADDRESS")
-	if ok {
-		newConfig.serverAddress = envServerAddr
+	if confPath, ok := os.LookupEnv("CONFIG"); ok {
+		configPath = confPath
 	}
 
-	envSigningKey, ok := os.LookupEnv("KEY")
-	if ok {
-		newConfig.signingKey = envSigningKey
-	}
-
-	envPollINterval, ok := os.LookupEnv("POLL_INTERVAL")
-	if ok {
-		interval, err := strconv.ParseUint(envPollINterval, 10, 32)
+	if len(configPath) != 0 {
+		err := cleanenv.ReadConfig(configPath, &newConfig)
 		if err != nil {
-			return nil, errors.New("can`t convert STORE_INTERVAL env variable")
-		}
-		newConfig.pollInterval = time.Duration(interval) * time.Second
-	}
-
-	envReportINterval, ok := os.LookupEnv("REPORT_INTERVAL")
-	if ok {
-		interval, err := strconv.ParseUint(envReportINterval, 10, 32)
-		if err != nil {
-			return nil, errors.New("can`t convert STORE_INTERVAL env variable")
-		}
-		newConfig.reportInterval = time.Duration(interval) * time.Second
-	}
-
-	envRateLimit, ok := os.LookupEnv("RATE_LIMIT")
-	if ok {
-		limit, err := strconv.ParseUint(envRateLimit, 10, 32)
-		newConfig.rateLimit = uint(limit)
-		if err != nil {
-			return nil, errors.New("can`t convert RATE_LIMIT env variable")
+			log.Printf("error read config file. %s", err.Error())
 		}
 	}
+	agentFlags.Parse(os.Args[1:])
+	cleanenv.ReadEnv(&newConfig)
 
 	return &newConfig, nil
+}
+
+func getLocalIP(srvAddr string) (string, error) {
+	conn, err := net.Dial("tcp", srvAddr)
+	if err != nil {
+		log.Println("error get local ip")
+		return "", fmt.Errorf("error get ip: %w", err)
+	}
+	defer conn.Close()
+	addr := conn.LocalAddr()
+	return addr.String(), nil
 }
 
 func NewAgent(storage store.StorageInterface) (*Agent, error) {
@@ -102,7 +109,46 @@ func NewAgent(storage store.StorageInterface) (*Agent, error) {
 		return nil, err
 	}
 	newAgent.metricStorage = storage
+	if newAgent.config.KeyFile != "" {
+		newAgent.pubKey, err = readPubKey(newAgent.config.KeyFile)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	addr, err := getLocalIP(newAgent.config.ServerAddress)
+	if err != nil {
+		log.Println("server not available")
+		return nil, err
+	}
+	ip, _, ok := strings.Cut(addr, ":")
+	if !ok {
+		return nil, errors.New("error fetch local ip address")
+	}
+	newAgent.config.localIP = ip
 	return &newAgent, nil
+}
+
+func readPubKey(filePath string) (*rsa.PublicKey, error) {
+	keyBytes, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+	pemBlock, _ := pem.Decode(keyBytes)
+	if pemBlock == nil {
+		return nil, errors.New("error decode pem block")
+	}
+	key, err := x509.ParsePKIXPublicKey(pemBlock.Bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	rsaKey, ok := key.(*rsa.PublicKey)
+	if !ok {
+		return nil, errors.New("is not public key")
+	}
+	return rsaKey, nil
+
 }
 
 func (agent *Agent) RuntimeMetricsUpdate() error {
@@ -187,7 +233,7 @@ func (agent *Agent) SendMetrics() error {
 	allMetrics := agent.metricStorage.GetAllMetrics(context.Background())
 	for _, metrics := range *allMetrics {
 
-		response, err := client.Post(fmt.Sprintf(requestPattern, agent.config.serverAddress, metrics.MType, metrics.ID, metrics.GetMetricsValue()), "Content-Type: text/plain", nil)
+		response, err := client.Post(fmt.Sprintf(requestPattern, agent.config.ServerAddress, metrics.MType, metrics.ID, metrics.GetMetricsValue()), "Content-Type: text/plain", nil)
 		if err != nil {
 			return fmt.Errorf("error send metrics %s. error:  %w", metrics.ID, err)
 		}
@@ -210,6 +256,12 @@ func (agent *Agent) SendJSONMetrics(metrics *models.Metrics) error {
 	if err != nil {
 		return fmt.Errorf("error marshal metrics to JSON. error: %w", err)
 	}
+	if agent.config.KeyFile != "" {
+		buf, err = rsa.EncryptPKCS1v15(cryptoRand.Reader, agent.pubKey, buf)
+		if err != nil {
+			return err
+		}
+	}
 
 	var requestBody bytes.Buffer
 
@@ -225,7 +277,7 @@ func (agent *Agent) SendJSONMetrics(metrics *models.Metrics) error {
 	} else {
 		requestBody.Write(buf)
 	}
-	req, err := http.NewRequest(http.MethodPost, "http://"+agent.config.serverAddress+"/update/", &requestBody)
+	req, err := http.NewRequest(http.MethodPost, "http://"+agent.config.ServerAddress+"/update/", &requestBody)
 	if err != nil {
 		return fmt.Errorf("error! create request. error: %w", err)
 	}
@@ -233,10 +285,11 @@ func (agent *Agent) SendJSONMetrics(metrics *models.Metrics) error {
 	if useCompression {
 		req.Header.Set("Content-Encoding", "gzip")
 	}
-	if agent.config.signingKey != "" {
-		bodyHash := misc.GetRequestHash(requestBody.Bytes(), agent.config.signingKey)
+	if agent.config.SigningKey != "" {
+		bodyHash := misc.GetRequestHash(requestBody.Bytes(), agent.config.SigningKey)
 		req.Header.Set("HashSHA256", bodyHash)
 	}
+	req.Header.Set("X-Real-IP", agent.config.localIP)
 	response, err := client.Do(req)
 
 	if err != nil {
@@ -272,16 +325,17 @@ func (agent *Agent) SendBunchMetrics() error {
 		return fmt.Errorf("error close zip writer. error: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, "http://"+agent.config.serverAddress+"/updates/", &requestBody)
+	req, err := http.NewRequest(http.MethodPost, "http://"+agent.config.ServerAddress+"/updates/", &requestBody)
 	if err != nil {
 		return fmt.Errorf("error! create request. error: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Content-Encoding", "gzip")
-	if agent.config.signingKey != "" {
-		bodyHash := misc.GetRequestHash(requestBody.Bytes(), agent.config.signingKey)
+	if agent.config.SigningKey != "" {
+		bodyHash := misc.GetRequestHash(requestBody.Bytes(), agent.config.SigningKey)
 		req.Header.Set("HashSHA256", bodyHash)
 	}
+	req.Header.Set("X-Real-IP", agent.config.localIP)
 	response, err := client.Do(req)
 	if err != nil {
 		return misc.NewRetrialableError(err)
@@ -329,7 +383,7 @@ func (agent *Agent) SendMetricsParallel() error {
 	numJobs := len(*allMetrics)
 	metricsChannel := make(chan models.Metrics, numJobs)
 	resultChannel := make(chan Result, numJobs)
-	for i := 0; i < int(agent.config.rateLimit); i++ {
+	for i := 0; i < int(agent.config.RateLimit); i++ {
 		go agent.sendOneMetrics(metricsChannel, resultChannel)
 	}
 
@@ -347,24 +401,72 @@ func (agent *Agent) SendMetricsParallel() error {
 	return nil
 }
 
+func ConvertMetrics(metrics *[]models.Metrics) *[]*pb.Metric {
+	bunch := make([]*pb.Metric, 0)
+	for _, m := range *metrics {
+		protoMetrics := &pb.Metric{}
+		protoMetrics.SetId(m.ID)
+		switch m.MType {
+		case "gauge":
+			protoMetrics.SetType(pb.Metric_GAUGE)
+			protoMetrics.SetValue(*m.Value)
+		case "counter":
+			protoMetrics.SetType(pb.Metric_COUNTER)
+			protoMetrics.SetDelta(*m.Delta)
+		}
+		bunch = append(bunch, protoMetrics)
+	}
+	return &bunch
+}
+
+func (agent *Agent) SendBunchMetricsGRPC() error {
+
+	con, err := grpc.NewClient(agent.config.GRPCServerAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Println("grpc connection error")
+		return err
+	}
+	defer con.Close()
+	client := pb.NewMetricsClient(con)
+
+	allMetrics := agent.metricStorage.GetAllMetrics(context.Background())
+	sendMetrics := ConvertMetrics(allMetrics)
+
+	md := metadata.New(map[string]string{"x-real-ip": agent.config.localIP})
+	ctx := metadata.NewOutgoingContext(context.Background(), md)
+
+	_, err = client.UpdateMetrics(ctx, pb.UpdateMetricsRequest_builder{Metrics: *sendMetrics}.Build())
+	if err != nil {
+		log.Println("error seng grpc update request")
+		return err
+	}
+
+	return nil
+}
+
 func (agent *Agent) MainLoop() {
+
 	var mu sync.Mutex
 
-	poolTicker := time.NewTicker(agent.config.pollInterval)
+	poolTicker := time.NewTicker(time.Duration(agent.config.PollInterval) * time.Second)
 	defer poolTicker.Stop()
 
-	reportTicker := time.NewTicker(agent.config.reportInterval)
+	reportTicker := time.NewTicker(time.Duration(agent.config.ReportInterval) * time.Second)
 	defer reportTicker.Stop()
 
 	done := make(chan bool)
+
+	termCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
-
+		defer wg.Done()
 		for {
 			select {
+			case <-termCtx.Done():
+				return
 			case <-done:
-				wg.Done()
 				return
 			case <-poolTicker.C:
 				mu.Lock()
@@ -373,28 +475,12 @@ func (agent *Agent) MainLoop() {
 					close(done)
 					return
 				}
-				mu.Unlock()
-			}
-		}
-
-	}()
-	wg.Add(1)
-	go func() {
-
-		for {
-			select {
-			case <-done:
-				wg.Done()
-				return
-			case <-poolTicker.C:
-				mu.Lock()
 				if err := agent.RuntimeMetricsUpdate(); err != nil {
 					log.Printf("error runtime update metrics. error: %s", err.Error())
 					close(done)
 					return
 				}
 				mu.Unlock()
-
 			}
 		}
 
@@ -402,20 +488,20 @@ func (agent *Agent) MainLoop() {
 
 	wg.Add(1)
 	go func() {
-
+		defer wg.Done()
 		for {
 			select {
+			case <-termCtx.Done():
+				return
 			case <-done:
-				wg.Done()
 				return
 			case <-reportTicker.C:
 				mu.Lock()
-				err := misc.RetriableErrorHandler(agent.SendMetricsParallel)
+				err := misc.RetriableErrorHandler(termCtx, agent.SendBunchMetricsGRPC)
 				mu.Unlock()
 				if err != nil {
 					log.Println("error send data to server. agent down.")
 					close(done)
-					wg.Done()
 					return
 				}
 
@@ -424,4 +510,5 @@ func (agent *Agent) MainLoop() {
 
 	}()
 	wg.Wait()
+	log.Println("Agent shutdown.")
 }

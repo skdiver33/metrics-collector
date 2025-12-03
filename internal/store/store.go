@@ -132,3 +132,7 @@ func (inMemmory *MemStorage) RestoreDBDump(ctx context.Context, filename string)
 		inMemmory.UpdateMetrics(context.Background(), value)
 	}
 }
+
+func (inMemmory *MemStorage) CloseConnection() {
+	clear(inMemmory.Storage)
+}
