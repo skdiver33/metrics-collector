@@ -25,16 +25,17 @@ import (
 // ServerConfig - структура с конфигурацией сервера.
 // generate:reset
 type ServerConfig struct {
-	ListenAddress   string `json:"address" env:"ADDRESS"`
-	StoreInterval   uint   `json:"store_interval" env:"STORE_INTERVAL"`
-	StorageDumpPath string `json:"store_file" env:"FILE_STORAGE_PATH"`
-	IsDumpRestore   bool   `json:"restore" env:"RESTORE"`
-	SQLDBAddress    string `json:"database_dsn" env:"DATABASE_DSN"`
-	SigningKey      string `env:"KEY"`
-	AuditURL        string `env:"AUDIT_URL"`
-	AuditFile       string `env:"AUDIT_FILE"`
-	KeyFile         string `json:"crypto_key" env:"CRYPTO_KEY"`
-	TrustedSubnet   string `json:"trusted_subnet" env:"TRUSTED_SUBNET"`
+	ListenAddress     string `json:"address" env:"ADDRESS"`
+	GRPCListenAddress string `json:"grpc_address" env:"GRPC_ADDRESS"`
+	StoreInterval     uint   `json:"store_interval" env:"STORE_INTERVAL"`
+	StorageDumpPath   string `json:"store_file" env:"FILE_STORAGE_PATH"`
+	IsDumpRestore     bool   `json:"restore" env:"RESTORE"`
+	SQLDBAddress      string `json:"database_dsn" env:"DATABASE_DSN"`
+	SigningKey        string `env:"KEY"`
+	AuditURL          string `env:"AUDIT_URL"`
+	AuditFile         string `env:"AUDIT_FILE"`
+	KeyFile           string `json:"crypto_key" env:"CRYPTO_KEY"`
+	TrustedSubnet     string `json:"trusted_subnet" env:"TRUSTED_SUBNET"`
 }
 
 func newServerConfig() *ServerConfig {
@@ -44,6 +45,7 @@ func newServerConfig() *ServerConfig {
 
 	serverFlags := flag.NewFlagSet("Server config flags", 0)
 	serverFlags.StringVar(&serverConfig.ListenAddress, "a", "localhost:8080", "adress for start server in form ip:port. default localhost:8080")
+	serverFlags.StringVar(&serverConfig.GRPCListenAddress, "grpc", "localhost:3080", "adress for start grpc server in form ip:port. default localhost:3080")
 	serverFlags.UintVar(&serverConfig.StoreInterval, "i", 10, "store interval in seconds. default 300.")
 	serverFlags.StringVar(&serverConfig.StorageDumpPath, "f", "", "path to file for storage dump. Default empty and disable.")
 	serverFlags.StringVar(&serverConfig.SigningKey, "k", "", "key for check signing response body. Default empty")

@@ -12,6 +12,7 @@ import (
 
 	_ "net/http/pprof"
 
+	"github.com/skdiver33/metrics-collector/internal/grpcserver"
 	"github.com/skdiver33/metrics-collector/internal/server"
 )
 
@@ -61,12 +62,19 @@ func main() {
 			log.Fatal(err.Error())
 		}
 	}()
+	grpcServer := grpcserver.NewMetricsServer(server.Config, server.Storage)
+	go func() {
+		if err := grpcServer.Run(); err != nil {
+			log.Fatal(err.Error())
+		}
+	}()
 	<-retCtx.Done()
 	stop()
 	log.Println("Server shutdowning....")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(5)*time.Second)
 	defer cancel()
 	srv.Shutdown(shutdownCtx)
+	grpcServer.Stop()
 	server.Storage.CloseConnection()
 	log.Println("Server stop")
 }

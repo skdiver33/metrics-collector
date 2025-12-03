@@ -31,7 +31,12 @@ import (
 
 	"github.com/shirou/gopsutil/v4/load"
 	"github.com/shirou/gopsutil/v4/mem"
+	pb "github.com/skdiver33/metrics-collector/internal/proto"
 	"github.com/skdiver33/metrics-collector/models"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 
 	cryptoRand "crypto/rand"
 )
@@ -43,13 +48,14 @@ type Agent struct {
 }
 
 type AgentConfig struct {
-	ServerAddress  string `json:"address" env:"ADDRESS"`
-	PollInterval   uint   `json:"poll_interval" env:"POLL_INTERVAL"`
-	ReportInterval uint   `json:"report_interval" env:"REPORT_INTERVAL"`
-	KeyFile        string `json:"crypto_key" env:"CRYPTO_KEY"`
-	SigningKey     string `env:"KEY"`
-	RateLimit      uint   `env:"RATE_LIMIT"`
-	localIP        string
+	ServerAddress     string `json:"address" env:"ADDRESS"`
+	GRPCServerAddress string `json:"grpc_addr" env:"GRPC_ADDRESS"`
+	PollInterval      uint   `json:"poll_interval" env:"POLL_INTERVAL"`
+	ReportInterval    uint   `json:"report_interval" env:"REPORT_INTERVAL"`
+	KeyFile           string `json:"crypto_key" env:"CRYPTO_KEY"`
+	SigningKey        string `env:"KEY"`
+	RateLimit         uint   `env:"RATE_LIMIT"`
+	localIP           string
 }
 
 func NewAgentConfig() (*AgentConfig, error) {
@@ -58,6 +64,7 @@ func NewAgentConfig() (*AgentConfig, error) {
 	var configPath string
 	agentFlags := flag.NewFlagSet("Agent flags", flag.ContinueOnError)
 	agentFlags.StringVar(&newConfig.ServerAddress, "a", ":8080", "adress for start server in form ip:port. default localhost:8080")
+	agentFlags.StringVar(&newConfig.GRPCServerAddress, "grpc", ":3080", "adress for GRPC-server. default localhost:3080")
 	agentFlags.UintVar(&newConfig.ReportInterval, "r", 10, "report interval in seconds. default 10.")
 	agentFlags.UintVar(&newConfig.PollInterval, "p", 2, "poll interval in seconds. default 2.")
 	agentFlags.StringVar(&newConfig.SigningKey, "k", "", "key for signing data")
@@ -394,6 +401,49 @@ func (agent *Agent) SendMetricsParallel() error {
 	return nil
 }
 
+func ConvertMetrics(metrics *[]models.Metrics) *[]*pb.Metric {
+	bunch := make([]*pb.Metric, 0)
+	for _, m := range *metrics {
+		protoMetrics := &pb.Metric{}
+		protoMetrics.SetId(m.ID)
+		switch m.MType {
+		case "gauge":
+			protoMetrics.SetType(pb.Metric_GAUGE)
+			protoMetrics.SetValue(*m.Value)
+		case "counter":
+			protoMetrics.SetType(pb.Metric_COUNTER)
+			protoMetrics.SetDelta(*m.Delta)
+		}
+		bunch = append(bunch, protoMetrics)
+	}
+	return &bunch
+}
+
+func (agent *Agent) SendBunchMetricsGRPC() error {
+
+	con, err := grpc.NewClient(agent.config.GRPCServerAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Println("grpc connection error")
+		return err
+	}
+	defer con.Close()
+	client := pb.NewMetricsClient(con)
+
+	allMetrics := agent.metricStorage.GetAllMetrics(context.Background())
+	sendMetrics := ConvertMetrics(allMetrics)
+
+	md := metadata.New(map[string]string{"x-real-ip": agent.config.localIP})
+	ctx := metadata.NewOutgoingContext(context.Background(), md)
+
+	_, err = client.UpdateMetrics(ctx, pb.UpdateMetricsRequest_builder{Metrics: *sendMetrics}.Build())
+	if err != nil {
+		log.Println("error seng grpc update request")
+		return err
+	}
+
+	return nil
+}
+
 func (agent *Agent) MainLoop() {
 
 	var mu sync.Mutex
@@ -447,7 +497,7 @@ func (agent *Agent) MainLoop() {
 				return
 			case <-reportTicker.C:
 				mu.Lock()
-				err := misc.RetriableErrorHandler(termCtx, agent.SendMetricsConsistently)
+				err := misc.RetriableErrorHandler(termCtx, agent.SendBunchMetricsGRPC)
 				mu.Unlock()
 				if err != nil {
 					log.Println("error send data to server. agent down.")
